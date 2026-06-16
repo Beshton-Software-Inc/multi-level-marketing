@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: winwinlaw-postgres
+    environment:
+      POSTGRES_USER: winwinlaw
+      POSTGRES_PASSWORD: localdev123
+      POSTGRES_DB: winwinlaw_mlm
+    ports:
+      - "5432:5432"
+    volumes:
+      - winwinlaw_pg_data:/var/lib/postgresql/data
+
+volumes:
+  winwinlaw_pg_data:
