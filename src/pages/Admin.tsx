@@ -4,7 +4,7 @@ import { Users, DollarSign, CreditCard, TrendingUp, Check, X } from 'lucide-reac
 import { adminApi } from '../lib/api'
 import { StatCard } from '../components/StatCard'
 
-type Tab = 'affiliates' | 'payouts' | 'commission'
+type Tab = 'affiliates' | 'payouts' | 'commission' | 'simulate'
 
 export function Admin() {
   const [tab, setTab] = useState<Tab>('affiliates')
@@ -12,6 +12,10 @@ export function Admin() {
   const [commAmount, setCommAmount] = useState('')
   const [commDesc, setCommDesc] = useState('')
   const [commMsg, setCommMsg] = useState('')
+  const [simEmail, setSimEmail] = useState('')
+  const [simAmount, setSimAmount] = useState('100')
+  const [simMsg, setSimMsg] = useState('')
+  const [simError, setSimError] = useState('')
 
   const qc = useQueryClient()
 
@@ -39,9 +43,37 @@ export function Admin() {
     },
   })
 
+  const simulateSub = useMutation({
+    mutationFn: adminApi.simulateSubscription,
+    onSuccess: (data) => {
+      setSimError('')
+      setSimMsg(data.message || 'Subscription simulated — check upline earnings.')
+      qc.invalidateQueries({ queryKey: ['admin-stats'] })
+      qc.invalidateQueries({ queryKey: ['admin-affiliates'] })
+      setTimeout(() => setSimMsg(''), 5000)
+    },
+    onError: (err: unknown) => {
+      setSimMsg('')
+      const msg =
+        err && typeof err === 'object' && 'response' in err
+          ? (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
+          : null
+      setSimError(typeof msg === 'string' ? msg : 'Simulation failed')
+    },
+  })
+
   const handleAddComm = (e: React.FormEvent) => {
     e.preventDefault()
     addComm.mutate({ affiliate_email: commEmail, amount: parseFloat(commAmount), description: commDesc })
+  }
+
+  const handleSimulate = (e: React.FormEvent) => {
+    e.preventDefault()
+    setSimError('')
+    simulateSub.mutate({
+      affiliate_email: simEmail,
+      subscription_amount: parseFloat(simAmount),
+    })
   }
 
   const affiliates = affiliatesData?.affiliates || []
@@ -98,7 +130,7 @@ export function Admin() {
       {/* Tabs */}
       <div className="border-b border-slate-700">
         <div className="flex gap-6">
-          {(['affiliates', 'payouts', 'commission'] as Tab[]).map((t) => (
+          {(['affiliates', 'payouts', 'commission', 'simulate'] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -108,7 +140,11 @@ export function Admin() {
                   : 'text-slate-400 border-transparent hover:text-white'
               }`}
             >
-              {t === 'commission' ? 'Add Commission' : t}
+              {t === 'commission'
+                ? 'Add Commission'
+                : t === 'simulate'
+                  ? 'Simulate Subscription'
+                  : t}
             </button>
           ))}
         </div>
@@ -274,6 +310,66 @@ export function Admin() {
                 className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-900 font-semibold py-2.5 rounded-lg transition-colors"
               >
                 {addComm.isPending ? 'Adding…' : 'Add Commission'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Simulate Subscription tab */}
+      {tab === 'simulate' && (
+        <div className="max-w-md">
+          <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-semibold text-white mb-1">Simulate Subscription</h3>
+            <p className="text-sm text-slate-400 mb-6">
+              Pretend an affiliate made a sale and distribute L1 (20%), L2 (10%), L3 (5%) commissions up the referral tree.
+            </p>
+
+            {simMsg && (
+              <div className="mb-4 bg-green-500/10 border border-green-500/30 rounded-lg px-4 py-3 text-green-400 text-sm">
+                {simMsg}
+              </div>
+            )}
+            {simError && (
+              <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm">
+                {simError}
+              </div>
+            )}
+
+            <form onSubmit={handleSimulate} className="space-y-4">
+              <div>
+                <label className="block text-sm text-slate-400 mb-1.5">Buyer affiliate email</label>
+                <input
+                  type="email"
+                  value={simEmail}
+                  onChange={(e) => setSimEmail(e.target.value)}
+                  required
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-amber-500"
+                  placeholder="carol@test.com"
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  The affiliate who &quot;sold&quot; the subscription — upline earns commissions.
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm text-slate-400 mb-1.5">Subscription amount ($)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  value={simAmount}
+                  onChange={(e) => setSimAmount(e.target.value)}
+                  required
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-amber-500"
+                  placeholder="100"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={simulateSub.isPending}
+                className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-900 font-semibold py-2.5 rounded-lg transition-colors"
+              >
+                {simulateSub.isPending ? 'Simulating…' : 'Simulate Subscription'}
               </button>
             </form>
           </div>
