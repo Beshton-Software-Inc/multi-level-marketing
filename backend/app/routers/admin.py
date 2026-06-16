@@ -7,7 +7,13 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Affiliate, Commission, PayoutRequest
-from app.schemas.admin import AdminStats, PayoutUpdateRequest, ManualCommissionRequest
+from app.schemas.admin import (
+    AdminStats,
+    PayoutUpdateRequest,
+    ManualCommissionRequest,
+    SimulateSubscriptionRequest,
+    SimulatedCommission,
+)
 from app.schemas.affiliate import AffiliateResponse, PayoutRequestResponse
 from app.services.auth_service import require_admin
 from app.services.mlm_service import calculate_and_create_commissions
@@ -121,16 +127,30 @@ def add_commission(
 
 @router.post("/simulate-subscription")
 def simulate_subscription(
-    body: dict,
+    body: SimulateSubscriptionRequest,
     admin: Affiliate = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    affiliate_email = body.get("affiliate_email")
-    subscription_amount = Decimal(str(body.get("subscription_amount", 100)))
-
-    affiliate = db.query(Affiliate).filter(Affiliate.email == affiliate_email).first()
+    affiliate = db.query(Affiliate).filter(Affiliate.email == body.affiliate_email).first()
     if not affiliate:
         raise HTTPException(status_code=404, detail="Affiliate not found")
 
-    calculate_and_create_commissions(affiliate.id, subscription_amount, db)
-    return {"message": f"Simulated ${subscription_amount} subscription for {affiliate.name}"}
+    created = calculate_and_create_commissions(affiliate.id, body.subscription_amount, db)
+    commissions = [SimulatedCommission.model_validate(c) for c in created]
+
+    if not commissions:
+        return {
+            "message": f"No upline found for {affiliate.name} — no commissions were created.",
+            "buyer_name": affiliate.name,
+            "buyer_email": affiliate.email,
+            "subscription_amount": body.subscription_amount,
+            "commissions": [],
+        }
+
+    return {
+        "message": f"Simulated ${body.subscription_amount} subscription for {affiliate.name}",
+        "buyer_name": affiliate.name,
+        "buyer_email": affiliate.email,
+        "subscription_amount": body.subscription_amount,
+        "commissions": commissions,
+    }

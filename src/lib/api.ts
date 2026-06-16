@@ -96,6 +96,21 @@ export interface AdminStats {
   pending_payouts_count: number
 }
 
+export interface SimulatedCommission {
+  earner_name: string
+  earner_email: string
+  tier: number
+  amount: string
+}
+
+export interface SimulateSubscriptionResult {
+  message: string
+  buyer_name: string
+  buyer_email: string
+  subscription_amount: string
+  commissions: SimulatedCommission[]
+}
+
 // ── Auth API ───────────────────────────────────────────
 
 export const authApi = {
@@ -132,5 +147,5 @@ export const adminApi = {
   addCommission: (data: { affiliate_email: string; amount: number; description: string }) =>
     apiClient.post('/api/admin/commission', data).then((r) => r.data),
   simulateSubscription: (data: { affiliate_email: string; subscription_amount: number }) =>
-    apiClient.post('/api/admin/simulate-subscription', data).then((r) => r.data),
+    apiClient.post<SimulateSubscriptionResult>('/api/admin/simulate-subscription', data).then((r) => r.data),
 }

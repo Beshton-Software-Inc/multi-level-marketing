@@ -20,3 +20,15 @@ class ManualCommissionRequest(BaseModel):
     affiliate_email: str
     amount: Decimal
     description: str
+
+
+class SimulateSubscriptionRequest(BaseModel):
+    affiliate_email: str
+    subscription_amount: Decimal = Decimal("100")
+
+
+class SimulatedCommission(BaseModel):
+    earner_name: str
+    earner_email: str
+    tier: int
+    amount: Decimal

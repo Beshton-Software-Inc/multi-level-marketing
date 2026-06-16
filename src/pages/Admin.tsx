@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Users, DollarSign, CreditCard, TrendingUp, Check, X } from 'lucide-react'
-import { adminApi } from '../lib/api'
+import { adminApi, SimulateSubscriptionResult } from '../lib/api'
 import { StatCard } from '../components/StatCard'
 
 type Tab = 'affiliates' | 'payouts' | 'commission' | 'simulate'
@@ -16,6 +16,7 @@ export function Admin() {
   const [simAmount, setSimAmount] = useState('100')
   const [simMsg, setSimMsg] = useState('')
   const [simError, setSimError] = useState('')
+  const [simResult, setSimResult] = useState<SimulateSubscriptionResult | null>(null)
 
   const qc = useQueryClient()
 
@@ -47,18 +48,25 @@ export function Admin() {
     mutationFn: adminApi.simulateSubscription,
     onSuccess: (data) => {
       setSimError('')
-      setSimMsg(data.message || 'Subscription simulated — check upline earnings.')
+      setSimResult(data)
+      setSimMsg(data.message)
       qc.invalidateQueries({ queryKey: ['admin-stats'] })
       qc.invalidateQueries({ queryKey: ['admin-affiliates'] })
-      setTimeout(() => setSimMsg(''), 5000)
     },
     onError: (err: unknown) => {
       setSimMsg('')
-      const msg =
+      setSimResult(null)
+      const detail =
         err && typeof err === 'object' && 'response' in err
-          ? (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
+          ? (err as { response?: { data?: { detail?: unknown } } }).response?.data?.detail
           : null
-      setSimError(typeof msg === 'string' ? msg : 'Simulation failed')
+      if (typeof detail === 'string') {
+        setSimError(detail)
+      } else if (Array.isArray(detail) && detail.length > 0) {
+        setSimError(detail.map((d) => (typeof d === 'object' && d && 'msg' in d ? String(d.msg) : String(d))).join(', '))
+      } else {
+        setSimError('Simulation failed — check that the backend is running and you are logged in as admin.')
+      }
     },
   })
 
@@ -70,6 +78,8 @@ export function Admin() {
   const handleSimulate = (e: React.FormEvent) => {
     e.preventDefault()
     setSimError('')
+    setSimMsg('')
+    setSimResult(null)
     simulateSub.mutate({
       affiliate_email: simEmail,
       subscription_amount: parseFloat(simAmount),
@@ -326,13 +336,53 @@ export function Admin() {
             </p>
 
             {simMsg && (
-              <div className="mb-4 bg-green-500/10 border border-green-500/30 rounded-lg px-4 py-3 text-green-400 text-sm">
+              <div
+                className={`mb-4 rounded-lg px-4 py-3 text-sm border ${
+                  simResult && simResult.commissions.length === 0
+                    ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-300'
+                    : 'bg-green-500/10 border-green-500/30 text-green-400'
+                }`}
+              >
                 {simMsg}
               </div>
             )}
             {simError && (
               <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm">
                 {simError}
+              </div>
+            )}
+
+            {simResult && simResult.commissions.length > 0 && (
+              <div className="mb-6 bg-slate-900/50 border border-slate-600 rounded-lg overflow-hidden">
+                <div className="px-4 py-3 border-b border-slate-600 text-sm text-slate-300">
+                  Commissions created for ${parseFloat(simResult.subscription_amount).toFixed(2)} subscription
+                </div>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-slate-500 text-xs border-b border-slate-700">
+                      <th className="text-left px-4 py-2">Earner</th>
+                      <th className="text-left px-4 py-2">Tier</th>
+                      <th className="text-right px-4 py-2">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {simResult.commissions.map((c, i) => (
+                      <tr key={`${c.earner_email}-${c.tier}-${i}`} className="border-b border-slate-700/50">
+                        <td className="px-4 py-2">
+                          <p className="text-white">{c.earner_name}</p>
+                          <p className="text-xs text-slate-500">{c.earner_email}</p>
+                        </td>
+                        <td className="px-4 py-2 text-amber-400">L{c.tier}</td>
+                        <td className="px-4 py-2 text-right text-white font-medium">
+                          ${parseFloat(c.amount).toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="px-4 py-3 text-xs text-slate-500">
+                  Check the Affiliates tab for updated earnings, or log in as an upline to see pending commissions on their dashboard.
+                </p>
               </div>
             )}
 
