@@ -329,8 +329,8 @@ export function Admin() {
         <div className="max-w-md">
           <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
             <h3 className="text-lg font-semibold text-white mb-1">Simulate Subscription</h3>
-            <p className="text-sm text-slate-400 mb-6">
-              Estimate L1 (20%), L2 (10%), and L3 (5%) commissions up the referral tree. Nothing is saved — use this to preview payouts before a real subscription.
+            <p className="text-sm text-slate-400 mb-4">
+              Distribute commissions up to 7 levels: L1 20% · L2 5% · L3 5% · L4 3% · L5 2% · L6 5% · L7 10%.
             </p>
 
             {simMsg && (
@@ -352,8 +352,11 @@ export function Admin() {
 
             {simResult && simResult.commissions.length > 0 && (
               <div className="mb-6 bg-slate-900/50 border border-slate-600 rounded-lg overflow-hidden">
-                <div className="px-4 py-3 border-b border-slate-600 text-sm text-slate-300">
-                  Estimated payouts for ${parseFloat(simResult.subscription_amount).toFixed(2)} subscription
+                <div className="px-4 py-3 border-b border-slate-600 text-sm text-slate-300 flex items-center justify-between">
+                  <span>Commissions for ${parseFloat(simResult.subscription_amount).toFixed(2)} subscription</span>
+                  <span className="text-amber-400 font-semibold">
+                    Total: ${simResult.commissions.reduce((s, c) => s + parseFloat(c.amount), 0).toFixed(2)}
+                  </span>
                 </div>
                 <table className="w-full text-sm">
                   <thead>
@@ -370,7 +373,24 @@ export function Admin() {
                           <p className="text-white">{c.earner_name}</p>
                           <p className="text-xs text-slate-500">{c.earner_email}</p>
                         </td>
-                        <td className="px-4 py-2 text-amber-400">L{c.tier}</td>
+                        <td className="px-4 py-2">
+                          {(() => {
+                            const colors: Record<number, string> = {
+                              1: 'bg-amber-500/20 text-amber-400',
+                              2: 'bg-blue-500/20 text-blue-400',
+                              3: 'bg-purple-500/20 text-purple-400',
+                              4: 'bg-green-500/20 text-green-400',
+                              5: 'bg-pink-500/20 text-pink-400',
+                              6: 'bg-cyan-500/20 text-cyan-400',
+                              7: 'bg-orange-500/20 text-orange-400',
+                            }
+                            return (
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${colors[c.tier] || 'bg-slate-700 text-slate-400'}`}>
+                                Level {c.tier}
+                              </span>
+                            )
+                          })()}
+                        </td>
                         <td className="px-4 py-2 text-right text-white font-medium">
                           ${parseFloat(c.amount).toFixed(2)}
                         </td>
