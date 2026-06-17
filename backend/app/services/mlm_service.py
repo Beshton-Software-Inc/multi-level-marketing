@@ -8,9 +8,17 @@ from sqlalchemy.orm import Session
 from app.models import Affiliate, Commission
 
 
-# Commission rates by level
-COMMISSION_RATES = {1: Decimal("0.20"), 2: Decimal("0.10"), 3: Decimal("0.05")}
-MAX_LEVELS = 3
+# Commission rates by level (7-level structure)
+COMMISSION_RATES = {
+    1: Decimal("0.20"),  # 20% — direct
+    2: Decimal("0.05"),  # 5%
+    3: Decimal("0.05"),  # 5%
+    4: Decimal("0.03"),  # 3%
+    5: Decimal("0.02"),  # 2%
+    6: Decimal("0.05"),  # 5%
+    7: Decimal("0.10"),  # 10%
+}
+MAX_LEVELS = 7
 
 
 def get_team_members(affiliate_id: int, db: Session) -> List[Dict[str, Any]]:
@@ -42,6 +50,38 @@ def get_team_members(affiliate_id: int, db: Session) -> List[Dict[str, Any]]:
 
     recurse(affiliate_id, 1)
     return result
+
+
+def preview_commission_breakdown(
+    buyer_affiliate_id: int,
+    subscription_amount: Decimal,
+    db: Session,
+) -> List[Dict[str, Any]]:
+    """Walk up the referral tree and return estimated commissions without persisting."""
+    affiliate = db.query(Affiliate).filter(Affiliate.id == buyer_affiliate_id).first()
+    if not affiliate:
+        return []
+
+    breakdown: List[Dict[str, Any]] = []
+    current = affiliate
+    for level in range(1, MAX_LEVELS + 1):
+        if current.referred_by_id is None:
+            break
+        referrer = db.query(Affiliate).filter(Affiliate.id == current.referred_by_id).first()
+        if not referrer:
+            break
+
+        rate = COMMISSION_RATES[level]
+        amount = (subscription_amount * rate).quantize(Decimal("0.01"))
+        breakdown.append({
+            "earner_name": referrer.name,
+            "earner_email": referrer.email,
+            "tier": level,
+            "amount": amount,
+        })
+        current = referrer
+
+    return breakdown
 
 
 def calculate_and_create_commissions(new_affiliate_id: int, subscription_amount: Decimal, db: Session) -> List[Dict[str, Any]]:

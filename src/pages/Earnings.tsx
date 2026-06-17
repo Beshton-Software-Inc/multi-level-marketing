@@ -4,14 +4,19 @@ import { DollarSign, Clock, X } from 'lucide-react'
 import { affiliateApi } from '../lib/api'
 import { StatCard } from '../components/StatCard'
 
+const TIER_COLORS: Record<number, string> = {
+  1: 'bg-amber-500/20 text-amber-400',
+  2: 'bg-blue-500/20 text-blue-400',
+  3: 'bg-purple-500/20 text-purple-400',
+  4: 'bg-green-500/20 text-green-400',
+  5: 'bg-pink-500/20 text-pink-400',
+  6: 'bg-cyan-500/20 text-cyan-400',
+  7: 'bg-orange-500/20 text-orange-400',
+}
+
 const tierLabel = (tier: number) => {
-  const labels: Record<number, { label: string; color: string }> = {
-    1: { label: 'Level 1', color: 'bg-amber-500/20 text-amber-400' },
-    2: { label: 'Level 2', color: 'bg-blue-500/20 text-blue-400' },
-    3: { label: 'Level 3', color: 'bg-purple-500/20 text-purple-400' },
-  }
-  const t = labels[tier] || { label: `L${tier}`, color: 'bg-slate-700 text-slate-400' }
-  return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${t.color}`}>{t.label}</span>
+  const color = TIER_COLORS[tier] || 'bg-slate-700 text-slate-400'
+  return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${color}`}>Level {tier}</span>
 }
 
 const statusBadge = (status: string) => {

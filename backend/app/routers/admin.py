@@ -16,7 +16,7 @@ from app.schemas.admin import (
 )
 from app.schemas.affiliate import AffiliateResponse, PayoutRequestResponse
 from app.services.auth_service import require_admin
-from app.services.mlm_service import calculate_and_create_commissions
+from app.services.mlm_service import preview_commission_breakdown
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -135,12 +135,12 @@ def simulate_subscription(
     if not affiliate:
         raise HTTPException(status_code=404, detail="Affiliate not found")
 
-    created = calculate_and_create_commissions(affiliate.id, body.subscription_amount, db)
-    commissions = [SimulatedCommission.model_validate(c) for c in created]
+    breakdown = preview_commission_breakdown(affiliate.id, body.subscription_amount, db)
+    commissions = [SimulatedCommission.model_validate(c) for c in breakdown]
 
     if not commissions:
         return {
-            "message": f"No upline found for {affiliate.name} — no commissions were created.",
+            "message": f"No upline found for {affiliate.name} — no commissions would be earned.",
             "buyer_name": affiliate.name,
             "buyer_email": affiliate.email,
             "subscription_amount": body.subscription_amount,
@@ -148,7 +148,7 @@ def simulate_subscription(
         }
 
     return {
-        "message": f"Simulated ${body.subscription_amount} subscription for {affiliate.name}",
+        "message": f"Estimated commissions for a ${body.subscription_amount} subscription by {affiliate.name} (not saved)",
         "buyer_name": affiliate.name,
         "buyer_email": affiliate.email,
         "subscription_amount": body.subscription_amount,
