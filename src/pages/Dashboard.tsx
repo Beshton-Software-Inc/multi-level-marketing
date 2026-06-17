@@ -32,9 +32,13 @@ export function Dashboard() {
       1: 'bg-amber-500/20 text-amber-400',
       2: 'bg-blue-500/20 text-blue-400',
       3: 'bg-purple-500/20 text-purple-400',
+      4: 'bg-green-500/20 text-green-400',
+      5: 'bg-pink-500/20 text-pink-400',
+      6: 'bg-cyan-500/20 text-cyan-400',
+      7: 'bg-orange-500/20 text-orange-400',
     }
     return (
-      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${colors[tier] || colors[1]}`}>
+      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${colors[tier] || 'bg-slate-700 text-slate-400'}`}>
         L{tier}
       </span>
     )

@@ -8,9 +8,17 @@ from sqlalchemy.orm import Session
 from app.models import Affiliate, Commission
 
 
-# Commission rates by level
-COMMISSION_RATES = {1: Decimal("0.20"), 2: Decimal("0.10"), 3: Decimal("0.05")}
-MAX_LEVELS = 3
+# Commission rates by level (7-level structure)
+COMMISSION_RATES = {
+    1: Decimal("0.20"),  # 20% — direct
+    2: Decimal("0.05"),  # 5%
+    3: Decimal("0.05"),  # 5%
+    4: Decimal("0.03"),  # 3%
+    5: Decimal("0.02"),  # 2%
+    6: Decimal("0.05"),  # 5%
+    7: Decimal("0.10"),  # 10%
+}
+MAX_LEVELS = 7
 
 
 def get_team_members(affiliate_id: int, db: Session) -> List[Dict[str, Any]]:

@@ -120,9 +120,13 @@ export function Landing() {
               <div>Example ($100/mo sub)</div>
             </div>
             {[
-              { level: 'Level 1', who: 'Direct referrals', rate: '20%', example: '$20/mo', highlight: true },
-              { level: 'Level 2', who: "Your referrals' referrals", rate: '10%', example: '$10/mo', highlight: false },
-              { level: 'Level 3', who: '3rd-degree connections', rate: '5%', example: '$5/mo', highlight: false },
+              { level: 'Level 1', who: 'Direct referrals', rate: '20%', example: '$20.00', highlight: true },
+              { level: 'Level 2', who: "2nd-degree connections", rate: '5%', example: '$5.00', highlight: false },
+              { level: 'Level 3', who: '3rd-degree connections', rate: '5%', example: '$5.00', highlight: false },
+              { level: 'Level 4', who: '4th-degree connections', rate: '3%', example: '$3.00', highlight: false },
+              { level: 'Level 5', who: '5th-degree connections', rate: '2%', example: '$2.00', highlight: false },
+              { level: 'Level 6', who: '6th-degree connections', rate: '5%', example: '$5.00', highlight: false },
+              { level: 'Level 7', who: '7th-degree connections', rate: '10%', example: '$10.00', highlight: false },
             ].map((row) => (
               <div
                 key={row.level}
