@@ -19,8 +19,14 @@ export function Login() {
       await signIn(email, password)
       navigate('/dashboard')
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-      setError(msg || 'Invalid email or password')
+      const data = (err as { response?: { data?: { detail?: unknown } } })?.response?.data
+      let msg = 'Invalid email or password'
+      if (data?.detail && typeof data.detail === 'string') {
+        msg = data.detail
+      } else if (!(err as { response?: unknown }).response) {
+        msg = 'Cannot reach the server. Is the backend running on port 8001?'
+      }
+      setError(msg)
     } finally {
       setLoading(false)
     }

@@ -44,12 +44,13 @@ def get_team_members(affiliate_id: int, db: Session) -> List[Dict[str, Any]]:
     return result
 
 
-def calculate_and_create_commissions(new_affiliate_id: int, subscription_amount: Decimal, db: Session):
+def calculate_and_create_commissions(new_affiliate_id: int, subscription_amount: Decimal, db: Session) -> List[Dict[str, Any]]:
     """Walk up the referral tree and create commission records for up to 3 levels."""
     affiliate = db.query(Affiliate).filter(Affiliate.id == new_affiliate_id).first()
     if not affiliate:
-        return
+        return []
 
+    created: List[Dict[str, Any]] = []
     current = affiliate
     for level in range(1, MAX_LEVELS + 1):
         if current.referred_by_id is None:
@@ -73,10 +74,17 @@ def calculate_and_create_commissions(new_affiliate_id: int, subscription_amount:
 
         # Update earner total_earnings
         referrer.total_earnings = (referrer.total_earnings or Decimal("0")) + amount
+        created.append({
+            "earner_name": referrer.name,
+            "earner_email": referrer.email,
+            "tier": level,
+            "amount": amount,
+        })
 
         current = referrer
 
     db.commit()
+    return created
 
 
 def get_affiliate_stats(affiliate_id: int, db: Session):
@@ -88,10 +96,8 @@ def get_affiliate_stats(affiliate_id: int, db: Session):
     team_members = get_team_members(affiliate_id, db)
     team_size = len(team_members)
 
-    total_earnings = db.query(func.coalesce(func.sum(Commission.amount), 0)).filter(
-        Commission.earner_id == affiliate_id,
-        Commission.status == "paid",
-    ).scalar() or Decimal("0")
+    affiliate = db.query(Affiliate).filter(Affiliate.id == affiliate_id).first()
+    total_earnings = affiliate.total_earnings if affiliate else Decimal("0")
 
     pending_earnings = db.query(func.coalesce(func.sum(Commission.amount), 0)).filter(
         Commission.earner_id == affiliate_id,

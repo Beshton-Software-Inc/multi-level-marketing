@@ -22,8 +22,19 @@ export function Register() {
       await signUp(name, email, password, referralCode || undefined)
       navigate('/dashboard')
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-      setError(msg || 'Registration failed. Please try again.')
+      const data = (err as { response?: { data?: { detail?: unknown } } })?.response?.data
+      let msg = 'Registration failed. Please try again.'
+      if (data?.detail) {
+        // FastAPI 422 returns detail as an array of validation errors
+        if (Array.isArray(data.detail)) {
+          msg = data.detail.map((e: { msg?: string }) => e.msg).join(', ')
+        } else if (typeof data.detail === 'string') {
+          msg = data.detail
+        }
+      } else if (!(err as { response?: unknown }).response) {
+        msg = 'Cannot reach the server. Is the backend running on port 8001?'
+      }
+      setError(msg)
     } finally {
       setLoading(false)
     }
