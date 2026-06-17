@@ -56,7 +56,7 @@ jobs:
           python -c "
           from app.routers import auth, affiliate, admin, webhook
           from app.services.auth_service import hash_password, verify_password, generate_referral_code
-          from app.services.mlm_service import calculate_and_create_commissions, get_team_members
+          from app.services.mlm_service import calculate_and_create_commissions, get_team_members, preview_commission_breakdown
           print('all imports ok')
           "
 

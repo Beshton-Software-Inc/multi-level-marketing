@@ -50,8 +50,6 @@ export function Admin() {
       setSimError('')
       setSimResult(data)
       setSimMsg(data.message)
-      qc.invalidateQueries({ queryKey: ['admin-stats'] })
-      qc.invalidateQueries({ queryKey: ['admin-affiliates'] })
     },
     onError: (err: unknown) => {
       setSimMsg('')
@@ -332,7 +330,7 @@ export function Admin() {
           <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
             <h3 className="text-lg font-semibold text-white mb-1">Simulate Subscription</h3>
             <p className="text-sm text-slate-400 mb-6">
-              Pretend an affiliate made a sale and distribute L1 (20%), L2 (10%), L3 (5%) commissions up the referral tree.
+              Estimate L1 (20%), L2 (10%), and L3 (5%) commissions up the referral tree. Nothing is saved — use this to preview payouts before a real subscription.
             </p>
 
             {simMsg && (
@@ -355,7 +353,7 @@ export function Admin() {
             {simResult && simResult.commissions.length > 0 && (
               <div className="mb-6 bg-slate-900/50 border border-slate-600 rounded-lg overflow-hidden">
                 <div className="px-4 py-3 border-b border-slate-600 text-sm text-slate-300">
-                  Commissions created for ${parseFloat(simResult.subscription_amount).toFixed(2)} subscription
+                  Estimated payouts for ${parseFloat(simResult.subscription_amount).toFixed(2)} subscription
                 </div>
                 <table className="w-full text-sm">
                   <thead>
@@ -381,7 +379,7 @@ export function Admin() {
                   </tbody>
                 </table>
                 <p className="px-4 py-3 text-xs text-slate-500">
-                  Check the Affiliates tab for updated earnings, or log in as an upline to see pending commissions on their dashboard.
+                  These amounts are for planning only. Real earnings are created when a subscription completes via the winwinlaw checkout webhook.
                 </p>
               </div>
             )}
@@ -419,7 +417,7 @@ export function Admin() {
                 disabled={simulateSub.isPending}
                 className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-900 font-semibold py-2.5 rounded-lg transition-colors"
               >
-                {simulateSub.isPending ? 'Simulating…' : 'Simulate Subscription'}
+                {simulateSub.isPending ? 'Calculating…' : 'Calculate Estimate'}
               </button>
             </form>
           </div>

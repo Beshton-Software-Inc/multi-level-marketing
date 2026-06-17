@@ -44,6 +44,38 @@ def get_team_members(affiliate_id: int, db: Session) -> List[Dict[str, Any]]:
     return result
 
 
+def preview_commission_breakdown(
+    buyer_affiliate_id: int,
+    subscription_amount: Decimal,
+    db: Session,
+) -> List[Dict[str, Any]]:
+    """Walk up the referral tree and return estimated commissions without persisting."""
+    affiliate = db.query(Affiliate).filter(Affiliate.id == buyer_affiliate_id).first()
+    if not affiliate:
+        return []
+
+    breakdown: List[Dict[str, Any]] = []
+    current = affiliate
+    for level in range(1, MAX_LEVELS + 1):
+        if current.referred_by_id is None:
+            break
+        referrer = db.query(Affiliate).filter(Affiliate.id == current.referred_by_id).first()
+        if not referrer:
+            break
+
+        rate = COMMISSION_RATES[level]
+        amount = (subscription_amount * rate).quantize(Decimal("0.01"))
+        breakdown.append({
+            "earner_name": referrer.name,
+            "earner_email": referrer.email,
+            "tier": level,
+            "amount": amount,
+        })
+        current = referrer
+
+    return breakdown
+
+
 def calculate_and_create_commissions(new_affiliate_id: int, subscription_amount: Decimal, db: Session) -> List[Dict[str, Any]]:
     """Walk up the referral tree and create commission records for up to 3 levels."""
     affiliate = db.query(Affiliate).filter(Affiliate.id == new_affiliate_id).first()
