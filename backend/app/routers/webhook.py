@@ -13,7 +13,7 @@ from typing import Optional
 from app.config import settings
 from app.database import get_db
 from app.models import Affiliate, TeamMembership
-from app.services.mlm_service import calculate_and_create_commissions
+from app.services.mlm_service import build_effective_rates, calculate_and_create_commissions
 
 router = APIRouter(prefix="/api/webhook", tags=["webhook"])
 
@@ -61,22 +61,39 @@ def subscription_webhook(
             "reason": f"affiliate '{payload.referral_code}' is not active",
         }
 
-    # Look up this affiliate's team to get the commission rate WinWinLaw assigned.
-    # If the affiliate has no team, default to 100% (full amount distributed).
+    # Look up this affiliate's team to get commission config.
+    # If no team, default to 100% with platform rates.
     team_commission_rate = Decimal("100")
     team_name = None
+    commission_rates = None
+    unassigned_policy = "compress"
+    team_admin_id = None
+
     membership = db.query(TeamMembership).filter(
         TeamMembership.affiliate_id == affiliate.id
     ).first()
     if membership and membership.team and membership.team.is_active:
-        team_commission_rate = Decimal(str(membership.team.commission_rate))
-        team_name = membership.team.name
+        team = membership.team
+        team_commission_rate = Decimal(str(team.commission_rate))
+        team_name = team.name
+        commission_rates = build_effective_rates(team)
+        unassigned_policy = team.unassigned_policy or "compress"
+        if unassigned_policy == "retain_admin":
+            admin_membership = db.query(TeamMembership).filter(
+                TeamMembership.team_id == team.id,
+                TeamMembership.role == "admin",
+            ).first()
+            if admin_membership:
+                team_admin_id = admin_membership.affiliate_id
 
     calculate_and_create_commissions(
         new_affiliate_id=affiliate.id,
         subscription_amount=Decimal(str(payload.amount)),
         db=db,
         team_commission_rate=team_commission_rate,
+        commission_rates=commission_rates,
+        unassigned_policy=unassigned_policy,
+        team_admin_id=team_admin_id,
     )
 
     return {

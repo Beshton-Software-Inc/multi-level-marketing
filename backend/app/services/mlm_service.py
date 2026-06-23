@@ -1,16 +1,17 @@
 from decimal import Decimal
 from datetime import datetime, timezone
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models import Affiliate, Commission
+from app.models import Affiliate, Commission, SalesTeam
 
 
-# Commission rates by level (7-level structure)
-COMMISSION_RATES = {
-    1: Decimal("0.20"),  # 20% — direct
+# Default platform commission rates by level (7-level structure).
+# Used for teams in "default" mode and for affiliates with no team.
+DEFAULT_COMMISSION_RATES: Dict[int, Decimal] = {
+    1: Decimal("0.20"),  # 20% — direct referrer
     2: Decimal("0.05"),  # 5%
     3: Decimal("0.05"),  # 5%
     4: Decimal("0.03"),  # 3%
@@ -18,7 +19,36 @@ COMMISSION_RATES = {
     6: Decimal("0.05"),  # 5%
     7: Decimal("0.10"),  # 10%
 }
+# Keep the old name as an alias so any external callers don't break
+COMMISSION_RATES = DEFAULT_COMMISSION_RATES
+
 MAX_LEVELS = 7
+
+
+def build_effective_rates(team: Optional[SalesTeam]) -> Dict[int, Decimal]:
+    """Return the per-level commission rates (as decimals, e.g. 0.20 for 20%)
+    to use for a given team.
+
+    - team is None or commission_mode == "default" → platform DEFAULT_COMMISSION_RATES
+    - commission_mode == "custom" → team's custom_rate_lN columns (÷ 100 to get decimal)
+      Any null level rate is treated as 0%.
+    """
+    if team is None or team.commission_mode != "custom":
+        return DEFAULT_COMMISSION_RATES
+
+    raw = [
+        team.custom_rate_l1,
+        team.custom_rate_l2,
+        team.custom_rate_l3,
+        team.custom_rate_l4,
+        team.custom_rate_l5,
+        team.custom_rate_l6,
+        team.custom_rate_l7,
+    ]
+    return {
+        level: (Decimal(str(rate)) / Decimal("100") if rate is not None else Decimal("0"))
+        for level, rate in enumerate(raw, start=1)
+    }
 
 
 def get_team_members(affiliate_id: int, db: Session) -> List[Dict[str, Any]]:
@@ -71,28 +101,57 @@ def _walk_ancestors(affiliate: "Affiliate", db: Session) -> List["Affiliate"]:
     return ancestors
 
 
+def _resolve_unassigned(
+    ancestors: List[Affiliate],
+    unassigned_policy: str,
+    team_admin_id: Optional[int],
+    db: Session,
+) -> Optional[Affiliate]:
+    """Return the affiliate who should receive commission for an unfilled level.
+
+    compress     → topmost ancestor in the chain (last item in ancestors list)
+    retain_admin → the team's admin affiliate; falls back to compress if not found
+    Returns None when there is no upline at all (→ WinWinLaw retains).
+    """
+    if not ancestors:
+        return None
+
+    if unassigned_policy == "retain_admin" and team_admin_id is not None:
+        admin = db.query(Affiliate).filter(Affiliate.id == team_admin_id).first()
+        if admin:
+            return admin
+        # Admin not found — fall back to compression silently
+    return ancestors[-1]
+
+
 def preview_commission_breakdown(
     buyer_affiliate_id: int,
     subscription_amount: Decimal,
     db: Session,
     team_commission_rate: Decimal = Decimal("100"),
+    commission_rates: Optional[Dict[int, Decimal]] = None,
+    unassigned_policy: str = "compress",
+    team_admin_id: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     """Return estimated commissions for all 7 levels without persisting.
 
-    Uses compression: if a level has no natural earner, its commission is
-    assigned to the topmost ancestor that exists. If there is no upline at
-    all, the amount is marked as retained by WinWinLaw.
+    commission_rates: per-level decimal rates (e.g. {1: Decimal("0.20"), ...}).
+                      Defaults to DEFAULT_COMMISSION_RATES when None.
+    unassigned_policy: "compress" | "retain_admin" — what to do when a level
+                       has no natural earner in the referral chain.
+    team_admin_id: affiliate id of the team admin (used by retain_admin policy).
     """
     affiliate = db.query(Affiliate).filter(Affiliate.id == buyer_affiliate_id).first()
     if not affiliate:
         return []
 
+    rates = commission_rates if commission_rates is not None else DEFAULT_COMMISSION_RATES
     team_share = (subscription_amount * team_commission_rate / Decimal("100")).quantize(Decimal("0.01"))
     ancestors = _walk_ancestors(affiliate, db)
 
     breakdown: List[Dict[str, Any]] = []
     for level in range(1, MAX_LEVELS + 1):
-        rate = COMMISSION_RATES[level]
+        rate = rates[level]
         amount = (team_share * rate).quantize(Decimal("0.01"))
         natural_idx = level - 1
 
@@ -100,25 +159,27 @@ def preview_commission_breakdown(
             earner = ancestors[natural_idx]
             compressed = False
             compressed_from_level = None
-        elif ancestors:
-            earner = ancestors[-1]
-            compressed = True
-            compressed_from_level = len(ancestors)
+            retained_by_platform = False
         else:
-            breakdown.append({
-                "earner_name": "WinWinLaw (no upline)",
-                "earner_email": None,
-                "tier": level,
-                "amount": amount,
-                "commission_rate": rate,
-                "subscription_amount": subscription_amount,
-                "team_commission_rate": team_commission_rate,
-                "team_share": team_share,
-                "compressed": False,
-                "compressed_from_level": None,
-                "retained_by_platform": True,
-            })
-            continue
+            earner = _resolve_unassigned(ancestors, unassigned_policy, team_admin_id, db)
+            if earner is None:
+                breakdown.append({
+                    "earner_name": "WinWinLaw (no upline)",
+                    "earner_email": None,
+                    "tier": level,
+                    "amount": amount,
+                    "commission_rate": rate,
+                    "subscription_amount": subscription_amount,
+                    "team_commission_rate": team_commission_rate,
+                    "team_share": team_share,
+                    "compressed": False,
+                    "compressed_from_level": None,
+                    "retained_by_platform": True,
+                })
+                continue
+            compressed = True
+            compressed_from_level = len(ancestors) if unassigned_policy == "compress" else None
+            retained_by_platform = False
 
         breakdown.append({
             "earner_name": earner.name,
@@ -131,7 +192,7 @@ def preview_commission_breakdown(
             "team_share": team_share,
             "compressed": compressed,
             "compressed_from_level": compressed_from_level,
-            "retained_by_platform": False,
+            "retained_by_platform": retained_by_platform,
         })
 
     return breakdown
@@ -142,21 +203,27 @@ def calculate_and_create_commissions(
     subscription_amount: Decimal,
     db: Session,
     team_commission_rate: Decimal = Decimal("100"),
+    commission_rates: Optional[Dict[int, Decimal]] = None,
+    unassigned_policy: str = "compress",
+    team_admin_id: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
-    """Create commission records for all 7 levels using compression.
+    """Create commission records for all 7 levels.
 
     For each level:
     - Natural earner exists → they receive the commission normally.
-    - Chain topped out → commission compresses to the topmost ancestor.
+    - No natural earner → _resolve_unassigned() picks who earns it:
+        compress     → topmost ancestor in the referral chain
+        retain_admin → the team's admin affiliate (fallback: compress)
     - No upline at all → WinWinLaw retains it (logged, never silently dropped).
 
+    commission_rates: per-level decimal rates. Defaults to DEFAULT_COMMISSION_RATES.
     team_commission_rate: % of subscription_amount the team's cascade distributes.
-    Defaults to 100 so callers without a team assignment are unaffected.
     """
     affiliate = db.query(Affiliate).filter(Affiliate.id == new_affiliate_id).first()
     if not affiliate:
         return []
 
+    rates = commission_rates if commission_rates is not None else DEFAULT_COMMISSION_RATES
     team_share = (subscription_amount * team_commission_rate / Decimal("100")).quantize(Decimal("0.01"))
     ancestors = _walk_ancestors(affiliate, db)
 
@@ -164,7 +231,7 @@ def calculate_and_create_commissions(
     winwinlaw_retained: List[Dict[str, Any]] = []
 
     for level in range(1, MAX_LEVELS + 1):
-        rate = COMMISSION_RATES[level]
+        rate = rates[level]
         amount = (team_share * rate).quantize(Decimal("0.01"))
         natural_idx = level - 1
 
@@ -172,19 +239,23 @@ def calculate_and_create_commissions(
             earner = ancestors[natural_idx]
             compressed = False
             desc = f"Level {level} commission from {affiliate.name}'s subscription"
-        elif ancestors:
-            # Compress to topmost ancestor
-            earner = ancestors[-1]
-            compressed = True
-            filled_depth = len(ancestors)
-            desc = (
-                f"Level {level} commission (compressed to L{filled_depth}) "
-                f"from {affiliate.name}'s subscription"
-            )
         else:
-            # No upline whatsoever — retained by WinWinLaw
-            winwinlaw_retained.append({"level": level, "amount": amount})
-            continue
+            earner = _resolve_unassigned(ancestors, unassigned_policy, team_admin_id, db)
+            if earner is None:
+                winwinlaw_retained.append({"level": level, "amount": amount})
+                continue
+            compressed = True
+            if unassigned_policy == "retain_admin" and earner.id == team_admin_id:
+                desc = (
+                    f"Level {level} commission (retained by team admin) "
+                    f"from {affiliate.name}'s subscription"
+                )
+            else:
+                filled_depth = len(ancestors)
+                desc = (
+                    f"Level {level} commission (compressed to L{filled_depth}) "
+                    f"from {affiliate.name}'s subscription"
+                )
 
         commission = Commission(
             earner_id=earner.id,

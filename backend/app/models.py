@@ -14,10 +14,29 @@ class SalesTeam(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, nullable=False)
     referral_prefix = Column(String(8), unique=True, nullable=False)  # e.g. "MRD" — team namespace
-    commission_rate = Column(Numeric(5, 2), nullable=False, default=0)  # 0–100, e.g. 50.00 means team keeps 50%
+    commission_rate = Column(Numeric(5, 2), nullable=False, default=0)  # 0–100, % of each sub that flows to this team
     is_active = Column(Boolean, default=True)
     notes = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Commission structure — "default" uses the platform's fixed 7-level rates.
+    # "custom" uses the per-level rates below.
+    commission_mode = Column(String, default="default")       # "default" | "custom"
+
+    # What happens when a referral chain is shorter than 7 levels:
+    # "compress"     — commission rolls to the topmost ancestor in the chain
+    # "retain_admin" — commission goes to this team's admin affiliate
+    unassigned_policy = Column(String, default="compress")
+
+    # Custom per-level rates (stored as %, e.g. 20.00 = 20%).
+    # Only used when commission_mode = "custom". Null means 0% for that level.
+    custom_rate_l1 = Column(Numeric(5, 2), nullable=True)
+    custom_rate_l2 = Column(Numeric(5, 2), nullable=True)
+    custom_rate_l3 = Column(Numeric(5, 2), nullable=True)
+    custom_rate_l4 = Column(Numeric(5, 2), nullable=True)
+    custom_rate_l5 = Column(Numeric(5, 2), nullable=True)
+    custom_rate_l6 = Column(Numeric(5, 2), nullable=True)
+    custom_rate_l7 = Column(Numeric(5, 2), nullable=True)
 
     members = relationship("TeamMembership", back_populates="team")
 

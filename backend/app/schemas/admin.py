@@ -107,3 +107,41 @@ class AddTeamMemberRequest(BaseModel):
 
 class SetTeamMemberRoleRequest(BaseModel):
     role: Literal["admin", "member"]
+
+
+# ── Commission config schemas ────────────────────────────────────────────────
+
+class CommissionConfigResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    commission_mode: str
+    unassigned_policy: str
+    custom_rate_l1: Optional[Decimal] = None
+    custom_rate_l2: Optional[Decimal] = None
+    custom_rate_l3: Optional[Decimal] = None
+    custom_rate_l4: Optional[Decimal] = None
+    custom_rate_l5: Optional[Decimal] = None
+    custom_rate_l6: Optional[Decimal] = None
+    custom_rate_l7: Optional[Decimal] = None
+
+
+class CommissionConfigUpdate(BaseModel):
+    commission_mode: Optional[Literal["default", "custom"]] = None
+    unassigned_policy: Optional[Literal["compress", "retain_admin"]] = None
+    custom_rate_l1: Optional[Decimal] = None
+    custom_rate_l2: Optional[Decimal] = None
+    custom_rate_l3: Optional[Decimal] = None
+    custom_rate_l4: Optional[Decimal] = None
+    custom_rate_l5: Optional[Decimal] = None
+    custom_rate_l6: Optional[Decimal] = None
+    custom_rate_l7: Optional[Decimal] = None
+
+    @field_validator(
+        "custom_rate_l1", "custom_rate_l2", "custom_rate_l3", "custom_rate_l4",
+        "custom_rate_l5", "custom_rate_l6", "custom_rate_l7",
+    )
+    @classmethod
+    def rate_in_range(cls, v: Optional[Decimal]) -> Optional[Decimal]:
+        if v is not None and not (Decimal("0") <= v <= Decimal("100")):
+            raise ValueError("custom rate must be between 0 and 100")
+        return v

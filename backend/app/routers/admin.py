@@ -20,10 +20,12 @@ from app.schemas.admin import (
     TeamMemberInfo,
     AddTeamMemberRequest,
     SetTeamMemberRoleRequest,
+    CommissionConfigResponse,
+    CommissionConfigUpdate,
 )
 from app.schemas.affiliate import AffiliateResponse, PayoutRequestResponse
 from app.services.auth_service import require_admin
-from app.services.mlm_service import preview_commission_breakdown
+from app.services.mlm_service import build_effective_rates, preview_commission_breakdown
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -142,14 +144,34 @@ def simulate_subscription(
     if not affiliate:
         raise HTTPException(status_code=404, detail="Affiliate not found")
 
-    # Use the affiliate's team commission rate for the simulation if they belong to a team
-    from decimal import Decimal as D
-    team_commission_rate = D("100")
+    team_commission_rate = Decimal("100")
+    commission_rates = None
+    unassigned_policy = "compress"
+    team_admin_id = None
+
     membership = db.query(TeamMembership).filter(TeamMembership.affiliate_id == affiliate.id).first()
     if membership and membership.team and membership.team.is_active:
-        team_commission_rate = D(str(membership.team.commission_rate))
+        team = membership.team
+        team_commission_rate = Decimal(str(team.commission_rate))
+        commission_rates = build_effective_rates(team)
+        unassigned_policy = team.unassigned_policy or "compress"
+        if unassigned_policy == "retain_admin":
+            admin_m = db.query(TeamMembership).filter(
+                TeamMembership.team_id == team.id,
+                TeamMembership.role == "admin",
+            ).first()
+            if admin_m:
+                team_admin_id = admin_m.affiliate_id
 
-    breakdown = preview_commission_breakdown(affiliate.id, body.subscription_amount, db, team_commission_rate)
+    breakdown = preview_commission_breakdown(
+        affiliate.id,
+        body.subscription_amount,
+        db,
+        team_commission_rate,
+        commission_rates=commission_rates,
+        unassigned_policy=unassigned_policy,
+        team_admin_id=team_admin_id,
+    )
     commissions = [SimulatedCommission.model_validate(c) for c in breakdown]
 
     if not commissions:
@@ -345,3 +367,42 @@ def remove_team_member(
     db.delete(membership)
     db.commit()
     return {"message": f"{affiliate_name} removed from {team_name}"}
+
+
+@router.get("/teams/{team_id}/commission-config", response_model=CommissionConfigResponse)
+def get_commission_config(
+    team_id: int,
+    admin: Affiliate = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Return a team's commission mode, unassigned policy, and custom per-level rates."""
+    team = db.query(SalesTeam).filter(SalesTeam.id == team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    return CommissionConfigResponse.model_validate(team)
+
+
+@router.put("/teams/{team_id}/commission-config", response_model=CommissionConfigResponse)
+def update_commission_config(
+    team_id: int,
+    body: CommissionConfigUpdate,
+    admin: Affiliate = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Update a team's commission mode, unassigned policy, and/or custom per-level rates.
+
+    Send only the fields you want to change — omitted fields are left as-is.
+    custom_rate_lN values are stored as percentages (e.g. 20 = 20%).
+    They are only used when commission_mode is set to "custom".
+    """
+    team = db.query(SalesTeam).filter(SalesTeam.id == team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+
+    update_data = body.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(team, field, value)
+
+    db.commit()
+    db.refresh(team)
+    return CommissionConfigResponse.model_validate(team)
