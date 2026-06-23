@@ -38,6 +38,10 @@ class CommissionResponse(BaseModel):
     description: Optional[str] = None
     status: str
     created_at: datetime
+    # Snapshot fields — reflect the exact inputs used when this commission was created
+    subscription_amount: Optional[Decimal] = None
+    commission_rate: Optional[Decimal] = None
+    team_allocation_pct: Optional[Decimal] = None
 
 
 class PayoutRequestCreate(BaseModel):

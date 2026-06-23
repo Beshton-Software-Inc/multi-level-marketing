@@ -78,6 +78,8 @@ def preview_commission_breakdown(
             "earner_email": referrer.email,
             "tier": level,
             "amount": amount,
+            "commission_rate": rate,
+            "subscription_amount": subscription_amount,
         })
         current = referrer
 
@@ -109,6 +111,9 @@ def calculate_and_create_commissions(new_affiliate_id: int, subscription_amount:
             tier=level,
             description=f"Level {level} commission from {affiliate.name}'s subscription",
             status="pending",
+            subscription_amount=subscription_amount,
+            commission_rate=rate,
+            # team_allocation_pct left null until team system is wired in
         )
         db.add(commission)
 
@@ -119,6 +124,8 @@ def calculate_and_create_commissions(new_affiliate_id: int, subscription_amount:
             "earner_email": referrer.email,
             "tier": level,
             "amount": amount,
+            "commission_rate": rate,
+            "subscription_amount": subscription_amount,
         })
 
         current = referrer

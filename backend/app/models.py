@@ -31,10 +31,17 @@ class Commission(Base):
     earner_id = Column(Integer, ForeignKey("affiliates.id"), nullable=False)
     source_id = Column(Integer, ForeignKey("affiliates.id"), nullable=True)
     amount = Column(Numeric(10, 2), nullable=False)
-    tier = Column(Integer, nullable=False)  # 1, 2, or 3
+    tier = Column(Integer, nullable=False)
     description = Column(String)
     status = Column(String, default="pending")  # pending, paid
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Snapshot columns — record the inputs used at creation time so that future
+    # changes to commission rates or team allocation percentages never alter the
+    # meaning of a past commission row.
+    subscription_amount = Column(Numeric(10, 2), nullable=True)   # gross sub amount before any split
+    commission_rate = Column(Numeric(6, 4), nullable=True)         # e.g. 0.2000 for the 20% L1 rate
+    team_allocation_pct = Column(Numeric(5, 2), nullable=True)     # null until team system is added
 
     earner = relationship("Affiliate", foreign_keys=[earner_id], back_populates="commissions_earned")
     source = relationship("Affiliate", foreign_keys=[source_id])
