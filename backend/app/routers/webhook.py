@@ -3,6 +3,8 @@ Server-to-server webhook called by the winwinlaw backend after a successful
 subscription. Authenticates via a shared secret header, then fires the MLM
 commission cascade for the referring affiliate.
 """
+import json
+import logging
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
@@ -12,8 +14,10 @@ from typing import Optional
 
 from app.config import settings
 from app.database import get_db
-from app.models import Affiliate, TeamMembership
+from app.models import Affiliate, TeamMembership, WebhookFailure
 from app.services.mlm_service import build_effective_rates, calculate_and_create_commissions
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/webhook", tags=["webhook"])
 
@@ -86,15 +90,34 @@ def subscription_webhook(
             if admin_membership:
                 team_admin_id = admin_membership.affiliate_id
 
-    calculate_and_create_commissions(
-        new_affiliate_id=affiliate.id,
-        subscription_amount=Decimal(str(payload.amount)),
-        db=db,
-        team_commission_rate=team_commission_rate,
-        commission_rates=commission_rates,
-        unassigned_policy=unassigned_policy,
-        team_admin_id=team_admin_id,
-    )
+    try:
+        calculate_and_create_commissions(
+            new_affiliate_id=affiliate.id,
+            subscription_amount=Decimal(str(payload.amount)),
+            db=db,
+            team_commission_rate=team_commission_rate,
+            commission_rates=commission_rates,
+            unassigned_policy=unassigned_policy,
+            team_admin_id=team_admin_id,
+        )
+    except Exception as exc:
+        logger.error(
+            "Commission cascade failed for subscription_id=%s referral_code=%s: %s",
+            payload.subscription_id, payload.referral_code, exc,
+        )
+        failure = WebhookFailure(
+            subscription_id=payload.subscription_id,
+            referral_code=payload.referral_code,
+            customer_email=payload.customer_email,
+            payload=json.dumps(payload.model_dump()),
+            error_message=str(exc),
+        )
+        db.add(failure)
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Commission processing failed — logged for replay",
+        )
 
     return {
         "status": "ok",

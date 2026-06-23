@@ -101,6 +101,25 @@ class Commission(Base):
     source = relationship("Affiliate", foreign_keys=[source_id])
 
 
+class WebhookFailure(Base):
+    """Records webhook deliveries that failed to process inside winwinlaw-mlm.
+
+    Written when the commission cascade raises an unexpected exception.
+    Allows ops to inspect the original payload and replay it manually.
+    """
+    __tablename__ = "webhook_failures"
+
+    id = Column(Integer, primary_key=True, index=True)
+    subscription_id = Column(String, nullable=False, index=True)  # invoice_number idempotency key
+    referral_code = Column(String, nullable=False)
+    customer_email = Column(String, nullable=False)
+    payload = Column(String, nullable=False)             # full JSON payload as text
+    error_message = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    resolved = Column(Boolean, default=False)
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+
+
 class PayoutRequest(Base):
     __tablename__ = "payout_requests"
 

@@ -6,7 +6,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Affiliate, Commission, PayoutRequest, SalesTeam, TeamMembership
+from app.models import Affiliate, Commission, PayoutRequest, SalesTeam, TeamMembership, WebhookFailure
 from app.schemas.admin import (
     AdminStats,
     PayoutUpdateRequest,
@@ -406,3 +406,54 @@ def update_commission_config(
     db.commit()
     db.refresh(team)
     return CommissionConfigResponse.model_validate(team)
+
+
+# ── Webhook failure management ───────────────────────────────────────────────
+
+@router.get("/webhook-failures")
+def list_webhook_failures(
+    resolved: Optional[bool] = None,
+    admin: Affiliate = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """List webhook failures. Pass ?resolved=false to see only open failures."""
+    q = db.query(WebhookFailure).order_by(WebhookFailure.created_at.desc())
+    if resolved is not None:
+        q = q.filter(WebhookFailure.resolved == resolved)
+    failures = q.all()
+    return {
+        "failures": [
+            {
+                "id": f.id,
+                "subscription_id": f.subscription_id,
+                "referral_code": f.referral_code,
+                "customer_email": f.customer_email,
+                "error_message": f.error_message,
+                "payload": f.payload,
+                "created_at": f.created_at,
+                "resolved": f.resolved,
+                "resolved_at": f.resolved_at,
+            }
+            for f in failures
+        ],
+        "total": len(failures),
+    }
+
+
+@router.post("/webhook-failures/{failure_id}/resolve")
+def resolve_webhook_failure(
+    failure_id: int,
+    admin: Affiliate = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Mark a webhook failure as resolved after manually replaying it."""
+    from datetime import datetime, timezone
+    failure = db.query(WebhookFailure).filter(WebhookFailure.id == failure_id).first()
+    if not failure:
+        raise HTTPException(status_code=404, detail="Webhook failure not found")
+    if failure.resolved:
+        return {"message": "Already resolved", "id": failure_id}
+    failure.resolved = True
+    failure.resolved_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"message": "Marked as resolved", "id": failure_id, "subscription_id": failure.subscription_id}
