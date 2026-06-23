@@ -30,9 +30,12 @@ class SimulateSubscriptionRequest(BaseModel):
 
 class SimulatedCommission(BaseModel):
     earner_name: str
-    earner_email: str
+    earner_email: Optional[str] = None
     tier: int
     amount: Decimal
+    compressed: bool = False
+    compressed_from_level: Optional[int] = None
+    retained_by_platform: bool = False
 
 
 # ── Sales Team schemas ──────────────────────────────────────────────────────

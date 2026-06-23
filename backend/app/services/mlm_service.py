@@ -52,46 +52,87 @@ def get_team_members(affiliate_id: int, db: Session) -> List[Dict[str, Any]]:
     return result
 
 
+def _walk_ancestors(affiliate: "Affiliate", db: Session) -> List["Affiliate"]:
+    """Walk the referral chain upward and return all ancestors in order.
+
+    ancestors[0] = direct referrer (L1), ancestors[1] = L2, etc.
+    Stops at MAX_LEVELS or when the chain ends.
+    """
+    ancestors: List["Affiliate"] = []
+    current = affiliate
+    for _ in range(MAX_LEVELS):
+        if current.referred_by_id is None:
+            break
+        referrer = db.query(Affiliate).filter(Affiliate.id == current.referred_by_id).first()
+        if not referrer:
+            break
+        ancestors.append(referrer)
+        current = referrer
+    return ancestors
+
+
 def preview_commission_breakdown(
     buyer_affiliate_id: int,
     subscription_amount: Decimal,
     db: Session,
     team_commission_rate: Decimal = Decimal("100"),
 ) -> List[Dict[str, Any]]:
-    """Walk up the referral tree and return estimated commissions without persisting.
+    """Return estimated commissions for all 7 levels without persisting.
 
-    team_commission_rate: the percentage of subscription_amount the team keeps
-    (e.g. 50 means the team's cascade receives 50% of the subscription).
-    Defaults to 100 so existing callers without a team are unaffected.
+    Uses compression: if a level has no natural earner, its commission is
+    assigned to the topmost ancestor that exists. If there is no upline at
+    all, the amount is marked as retained by WinWinLaw.
     """
     affiliate = db.query(Affiliate).filter(Affiliate.id == buyer_affiliate_id).first()
     if not affiliate:
         return []
 
     team_share = (subscription_amount * team_commission_rate / Decimal("100")).quantize(Decimal("0.01"))
+    ancestors = _walk_ancestors(affiliate, db)
 
     breakdown: List[Dict[str, Any]] = []
-    current = affiliate
     for level in range(1, MAX_LEVELS + 1):
-        if current.referred_by_id is None:
-            break
-        referrer = db.query(Affiliate).filter(Affiliate.id == current.referred_by_id).first()
-        if not referrer:
-            break
-
         rate = COMMISSION_RATES[level]
         amount = (team_share * rate).quantize(Decimal("0.01"))
+        natural_idx = level - 1
+
+        if natural_idx < len(ancestors):
+            earner = ancestors[natural_idx]
+            compressed = False
+            compressed_from_level = None
+        elif ancestors:
+            earner = ancestors[-1]
+            compressed = True
+            compressed_from_level = len(ancestors)
+        else:
+            breakdown.append({
+                "earner_name": "WinWinLaw (no upline)",
+                "earner_email": None,
+                "tier": level,
+                "amount": amount,
+                "commission_rate": rate,
+                "subscription_amount": subscription_amount,
+                "team_commission_rate": team_commission_rate,
+                "team_share": team_share,
+                "compressed": False,
+                "compressed_from_level": None,
+                "retained_by_platform": True,
+            })
+            continue
+
         breakdown.append({
-            "earner_name": referrer.name,
-            "earner_email": referrer.email,
+            "earner_name": earner.name,
+            "earner_email": earner.email,
             "tier": level,
             "amount": amount,
             "commission_rate": rate,
             "subscription_amount": subscription_amount,
             "team_commission_rate": team_commission_rate,
             "team_share": team_share,
+            "compressed": compressed,
+            "compressed_from_level": compressed_from_level,
+            "retained_by_platform": False,
         })
-        current = referrer
 
     return breakdown
 
@@ -102,56 +143,81 @@ def calculate_and_create_commissions(
     db: Session,
     team_commission_rate: Decimal = Decimal("100"),
 ) -> List[Dict[str, Any]]:
-    """Walk up the referral tree and create commission records for each level.
+    """Create commission records for all 7 levels using compression.
 
-    team_commission_rate: the percentage of subscription_amount the team keeps.
-    e.g. 50 → the cascade distributes over $99.50 of a $199 subscription.
-    Defaults to 100 so existing callers without a team are unaffected.
+    For each level:
+    - Natural earner exists → they receive the commission normally.
+    - Chain topped out → commission compresses to the topmost ancestor.
+    - No upline at all → WinWinLaw retains it (logged, never silently dropped).
+
+    team_commission_rate: % of subscription_amount the team's cascade distributes.
+    Defaults to 100 so callers without a team assignment are unaffected.
     """
     affiliate = db.query(Affiliate).filter(Affiliate.id == new_affiliate_id).first()
     if not affiliate:
         return []
 
-    # Apply the team's rate first to get the distributable share
     team_share = (subscription_amount * team_commission_rate / Decimal("100")).quantize(Decimal("0.01"))
+    ancestors = _walk_ancestors(affiliate, db)
 
     created: List[Dict[str, Any]] = []
-    current = affiliate
-    for level in range(1, MAX_LEVELS + 1):
-        if current.referred_by_id is None:
-            break
-        referrer = db.query(Affiliate).filter(Affiliate.id == current.referred_by_id).first()
-        if not referrer:
-            break
+    winwinlaw_retained: List[Dict[str, Any]] = []
 
+    for level in range(1, MAX_LEVELS + 1):
         rate = COMMISSION_RATES[level]
         amount = (team_share * rate).quantize(Decimal("0.01"))
+        natural_idx = level - 1
+
+        if natural_idx < len(ancestors):
+            earner = ancestors[natural_idx]
+            compressed = False
+            desc = f"Level {level} commission from {affiliate.name}'s subscription"
+        elif ancestors:
+            # Compress to topmost ancestor
+            earner = ancestors[-1]
+            compressed = True
+            filled_depth = len(ancestors)
+            desc = (
+                f"Level {level} commission (compressed to L{filled_depth}) "
+                f"from {affiliate.name}'s subscription"
+            )
+        else:
+            # No upline whatsoever — retained by WinWinLaw
+            winwinlaw_retained.append({"level": level, "amount": amount})
+            continue
 
         commission = Commission(
-            earner_id=referrer.id,
+            earner_id=earner.id,
             source_id=new_affiliate_id,
             amount=amount,
             tier=level,
-            description=f"Level {level} commission from {affiliate.name}'s subscription",
+            description=desc,
             status="pending",
             subscription_amount=subscription_amount,
             commission_rate=rate,
             team_allocation_pct=team_commission_rate,
         )
         db.add(commission)
+        earner.total_earnings = (earner.total_earnings or Decimal("0")) + amount
 
-        referrer.total_earnings = (referrer.total_earnings or Decimal("0")) + amount
         created.append({
-            "earner_name": referrer.name,
-            "earner_email": referrer.email,
+            "earner_name": earner.name,
+            "earner_email": earner.email,
             "tier": level,
             "amount": amount,
             "commission_rate": rate,
             "subscription_amount": subscription_amount,
             "team_commission_rate": team_commission_rate,
+            "compressed": compressed,
         })
 
-        current = referrer
+    if winwinlaw_retained:
+        total_retained = sum(r["amount"] for r in winwinlaw_retained)
+        levels = [r["level"] for r in winwinlaw_retained]
+        print(
+            f"[MLM] Platform retained ${total_retained} from levels {levels} "
+            f"— {affiliate.name} (id={affiliate.id}) has no upline"
+        )
 
     db.commit()
     return created
