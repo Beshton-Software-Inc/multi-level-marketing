@@ -20,7 +20,7 @@ export function Layout() {
 
   const handleSignOut = () => {
     signOut()
-    navigate('/login')
+    navigate('/')
   }
 
   const SidebarContent = () => (

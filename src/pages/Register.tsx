@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { Scale } from 'lucide-react'
+import { Scale, ArrowLeft } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 
 export function Register() {
@@ -44,6 +44,9 @@ export function Register() {
     <div className="min-h-screen bg-slate-900 flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
+          <Link to="/" className="inline-flex items-center gap-1.5 text-slate-400 hover:text-white text-sm mb-6 transition-colors">
+            <ArrowLeft size={14} /> Back to home
+          </Link>
           <div className="inline-flex p-3 bg-amber-500 rounded-xl mb-4">
             <Scale size={28} className="text-slate-900" />
           </div>
