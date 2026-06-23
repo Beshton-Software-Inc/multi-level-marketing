@@ -56,11 +56,19 @@ def preview_commission_breakdown(
     buyer_affiliate_id: int,
     subscription_amount: Decimal,
     db: Session,
+    team_commission_rate: Decimal = Decimal("100"),
 ) -> List[Dict[str, Any]]:
-    """Walk up the referral tree and return estimated commissions without persisting."""
+    """Walk up the referral tree and return estimated commissions without persisting.
+
+    team_commission_rate: the percentage of subscription_amount the team keeps
+    (e.g. 50 means the team's cascade receives 50% of the subscription).
+    Defaults to 100 so existing callers without a team are unaffected.
+    """
     affiliate = db.query(Affiliate).filter(Affiliate.id == buyer_affiliate_id).first()
     if not affiliate:
         return []
+
+    team_share = (subscription_amount * team_commission_rate / Decimal("100")).quantize(Decimal("0.01"))
 
     breakdown: List[Dict[str, Any]] = []
     current = affiliate
@@ -72,7 +80,7 @@ def preview_commission_breakdown(
             break
 
         rate = COMMISSION_RATES[level]
-        amount = (subscription_amount * rate).quantize(Decimal("0.01"))
+        amount = (team_share * rate).quantize(Decimal("0.01"))
         breakdown.append({
             "earner_name": referrer.name,
             "earner_email": referrer.email,
@@ -80,17 +88,32 @@ def preview_commission_breakdown(
             "amount": amount,
             "commission_rate": rate,
             "subscription_amount": subscription_amount,
+            "team_commission_rate": team_commission_rate,
+            "team_share": team_share,
         })
         current = referrer
 
     return breakdown
 
 
-def calculate_and_create_commissions(new_affiliate_id: int, subscription_amount: Decimal, db: Session) -> List[Dict[str, Any]]:
-    """Walk up the referral tree and create commission records for up to 3 levels."""
+def calculate_and_create_commissions(
+    new_affiliate_id: int,
+    subscription_amount: Decimal,
+    db: Session,
+    team_commission_rate: Decimal = Decimal("100"),
+) -> List[Dict[str, Any]]:
+    """Walk up the referral tree and create commission records for each level.
+
+    team_commission_rate: the percentage of subscription_amount the team keeps.
+    e.g. 50 → the cascade distributes over $99.50 of a $199 subscription.
+    Defaults to 100 so existing callers without a team are unaffected.
+    """
     affiliate = db.query(Affiliate).filter(Affiliate.id == new_affiliate_id).first()
     if not affiliate:
         return []
+
+    # Apply the team's rate first to get the distributable share
+    team_share = (subscription_amount * team_commission_rate / Decimal("100")).quantize(Decimal("0.01"))
 
     created: List[Dict[str, Any]] = []
     current = affiliate
@@ -102,7 +125,7 @@ def calculate_and_create_commissions(new_affiliate_id: int, subscription_amount:
             break
 
         rate = COMMISSION_RATES[level]
-        amount = (subscription_amount * rate).quantize(Decimal("0.01"))
+        amount = (team_share * rate).quantize(Decimal("0.01"))
 
         commission = Commission(
             earner_id=referrer.id,
@@ -113,11 +136,10 @@ def calculate_and_create_commissions(new_affiliate_id: int, subscription_amount:
             status="pending",
             subscription_amount=subscription_amount,
             commission_rate=rate,
-            # team_allocation_pct left null until team system is wired in
+            team_allocation_pct=team_commission_rate,
         )
         db.add(commission)
 
-        # Update earner total_earnings
         referrer.total_earnings = (referrer.total_earnings or Decimal("0")) + amount
         created.append({
             "earner_name": referrer.name,
@@ -126,6 +148,7 @@ def calculate_and_create_commissions(new_affiliate_id: int, subscription_amount:
             "amount": amount,
             "commission_rate": rate,
             "subscription_amount": subscription_amount,
+            "team_commission_rate": team_commission_rate,
         })
 
         current = referrer

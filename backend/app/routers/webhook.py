@@ -12,7 +12,7 @@ from typing import Optional
 
 from app.config import settings
 from app.database import get_db
-from app.models import Affiliate
+from app.models import Affiliate, TeamMembership
 from app.services.mlm_service import calculate_and_create_commissions
 
 router = APIRouter(prefix="/api/webhook", tags=["webhook"])
@@ -61,10 +61,22 @@ def subscription_webhook(
             "reason": f"affiliate '{payload.referral_code}' is not active",
         }
 
+    # Look up this affiliate's team to get the commission rate WinWinLaw assigned.
+    # If the affiliate has no team, default to 100% (full amount distributed).
+    team_commission_rate = Decimal("100")
+    team_name = None
+    membership = db.query(TeamMembership).filter(
+        TeamMembership.affiliate_id == affiliate.id
+    ).first()
+    if membership and membership.team and membership.team.is_active:
+        team_commission_rate = Decimal(str(membership.team.commission_rate))
+        team_name = membership.team.name
+
     calculate_and_create_commissions(
         new_affiliate_id=affiliate.id,
         subscription_amount=Decimal(str(payload.amount)),
         db=db,
+        team_commission_rate=team_commission_rate,
     )
 
     return {
@@ -73,4 +85,6 @@ def subscription_webhook(
         "affiliate_name": affiliate.name,
         "subscription_id": payload.subscription_id,
         "amount": payload.amount,
+        "team_name": team_name,
+        "team_commission_rate": float(team_commission_rate),
     }
