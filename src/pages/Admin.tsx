@@ -1,10 +1,12 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Users, DollarSign, CreditCard, TrendingUp, Check, X } from 'lucide-react'
-import { adminApi, SimulateSubscriptionResult } from '../lib/api'
+import { adminApi, SimulateSubscriptionResult, CommissionConfigUpdate } from '../lib/api'
 import { StatCard } from '../components/StatCard'
 
-type Tab = 'affiliates' | 'payouts' | 'commission' | 'simulate'
+type Tab = 'affiliates' | 'payouts' | 'commission' | 'simulate' | 'team-config'
+
+const PLATFORM_DEFAULTS = [20, 5, 5, 3, 2, 5, 10]
 
 export function Admin() {
   const [tab, setTab] = useState<Tab>('affiliates')
@@ -18,6 +20,14 @@ export function Admin() {
   const [simError, setSimError] = useState('')
   const [simResult, setSimResult] = useState<SimulateSubscriptionResult | null>(null)
 
+  // Commission config tab state
+  const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null)
+  const [cfgMode, setCfgMode] = useState<'default' | 'custom'>('default')
+  const [cfgPolicy, setCfgPolicy] = useState<'compress' | 'retain_admin'>('compress')
+  const [cfgRates, setCfgRates] = useState<string[]>(['', '', '', '', '', '', ''])
+  const [cfgMsg, setCfgMsg] = useState('')
+  const [cfgError, setCfgError] = useState('')
+
   const qc = useQueryClient()
 
   const { data: stats } = useQuery({ queryKey: ['admin-stats'], queryFn: adminApi.getStats })
@@ -25,6 +35,27 @@ export function Admin() {
   const { data: payoutsData, isLoading: payoutsLoading } = useQuery({
     queryKey: ['admin-payouts'],
     queryFn: adminApi.getPayouts,
+  })
+  const { data: teamsData } = useQuery({ queryKey: ['admin-teams'], queryFn: adminApi.listTeams })
+  const { data: commissionConfig } = useQuery({
+    queryKey: ['admin-commission-config', selectedTeamId],
+    queryFn: () => adminApi.getCommissionConfig(selectedTeamId!),
+    enabled: selectedTeamId !== null,
+  })
+
+  const updateConfig = useMutation({
+    mutationFn: ({ teamId, data }: { teamId: number; data: CommissionConfigUpdate }) =>
+      adminApi.updateCommissionConfig(teamId, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-commission-config', selectedTeamId] })
+      setCfgMsg('Commission rates saved.')
+      setCfgError('')
+      setTimeout(() => setCfgMsg(''), 3000)
+    },
+    onError: () => {
+      setCfgError('Failed to save — check that all rates are between 0 and 100.')
+      setCfgMsg('')
+    },
   })
 
   const updatePayout = useMutation({
@@ -67,6 +98,38 @@ export function Admin() {
       }
     },
   })
+
+  useEffect(() => {
+    if (!commissionConfig) return
+    setCfgMode(commissionConfig.commission_mode)
+    setCfgPolicy(commissionConfig.unassigned_policy)
+    setCfgRates([
+      commissionConfig.custom_rate_l1,
+      commissionConfig.custom_rate_l2,
+      commissionConfig.custom_rate_l3,
+      commissionConfig.custom_rate_l4,
+      commissionConfig.custom_rate_l5,
+      commissionConfig.custom_rate_l6,
+      commissionConfig.custom_rate_l7,
+    ].map((v) => (v === null ? '' : String(parseFloat(v)))))
+  }, [commissionConfig])
+
+  const handleSaveConfig = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedTeamId) return
+    const payload: CommissionConfigUpdate = { commission_mode: cfgMode, unassigned_policy: cfgPolicy }
+    if (cfgMode === 'custom') {
+      const keys = [
+        'custom_rate_l1', 'custom_rate_l2', 'custom_rate_l3', 'custom_rate_l4',
+        'custom_rate_l5', 'custom_rate_l6', 'custom_rate_l7',
+      ] as const
+      keys.forEach((key, i) => {
+        const val = cfgRates[i]
+        payload[key] = val === '' ? null : parseFloat(val)
+      })
+    }
+    updateConfig.mutate({ teamId: selectedTeamId, data: payload })
+  }
 
   const handleAddComm = (e: React.FormEvent) => {
     e.preventDefault()
@@ -138,11 +201,11 @@ export function Admin() {
       {/* Tabs */}
       <div className="border-b border-slate-700">
         <div className="flex gap-6">
-          {(['affiliates', 'payouts', 'commission', 'simulate'] as Tab[]).map((t) => (
+          {(['affiliates', 'payouts', 'commission', 'simulate', 'team-config'] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`pb-3 text-sm font-medium capitalize transition-colors border-b-2 ${
+              className={`pb-3 text-sm font-medium capitalize transition-colors border-b-2 whitespace-nowrap ${
                 tab === t
                   ? 'text-amber-400 border-amber-400'
                   : 'text-slate-400 border-transparent hover:text-white'
@@ -152,7 +215,9 @@ export function Admin() {
                 ? 'Add Commission'
                 : t === 'simulate'
                   ? 'Simulate Subscription'
-                  : t}
+                  : t === 'team-config'
+                    ? 'Commission Rates'
+                    : t}
             </button>
           ))}
         </div>
@@ -320,6 +385,151 @@ export function Admin() {
                 {addComm.isPending ? 'Adding…' : 'Add Commission'}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Commission Rates tab */}
+      {tab === 'team-config' && (
+        <div className="max-w-lg">
+          <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-semibold text-white mb-1">Commission Rates</h3>
+            <p className="text-sm text-slate-400 mb-6">
+              Set how commissions are distributed across 7 levels for a sales team.
+              Custom mode overrides the platform defaults (L1 20% · L2 5% · L3 5% · L4 3% · L5 2% · L6 5% · L7 10%).
+            </p>
+
+            {/* Team selector */}
+            {(teamsData?.teams ?? []).length === 0 ? (
+              <p className="text-slate-500 text-sm">No sales teams configured yet.</p>
+            ) : (
+              <div className="mb-6">
+                <label className="block text-sm text-slate-400 mb-1.5">Sales Team</label>
+                <select
+                  value={selectedTeamId ?? ''}
+                  onChange={(e) => {
+                    setSelectedTeamId(e.target.value ? Number(e.target.value) : null)
+                    setCfgMsg('')
+                    setCfgError('')
+                  }}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-amber-500"
+                >
+                  <option value="">Select a team…</option>
+                  {(teamsData?.teams ?? []).map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {selectedTeamId && (
+              <form onSubmit={handleSaveConfig} className="space-y-6">
+
+                {cfgMsg && (
+                  <div className="bg-green-500/10 border border-green-500/30 rounded-lg px-4 py-3 text-green-400 text-sm">
+                    {cfgMsg}
+                  </div>
+                )}
+                {cfgError && (
+                  <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm">
+                    {cfgError}
+                  </div>
+                )}
+
+                {/* Mode toggle */}
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">Commission Mode</label>
+                  <div className="flex rounded-lg overflow-hidden border border-slate-600">
+                    {(['default', 'custom'] as const).map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setCfgMode(m)}
+                        className={`flex-1 py-2 text-sm font-medium transition-colors ${
+                          cfgMode === m
+                            ? 'bg-amber-500 text-slate-900'
+                            : 'bg-slate-700 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {m === 'default' ? 'Default (platform rates)' : 'Custom'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Custom mode options */}
+                {cfgMode === 'custom' && (
+                  <>
+                    {/* Unassigned policy */}
+                    <div>
+                      <label className="block text-sm text-slate-400 mb-2">Unfilled level policy</label>
+                      <div className="flex rounded-lg overflow-hidden border border-slate-600">
+                        {(['compress', 'retain_admin'] as const).map((p) => (
+                          <button
+                            key={p}
+                            type="button"
+                            onClick={() => setCfgPolicy(p)}
+                            className={`flex-1 py-2 text-sm font-medium transition-colors ${
+                              cfgPolicy === p
+                                ? 'bg-amber-500 text-slate-900'
+                                : 'bg-slate-700 text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            {p === 'compress' ? 'Compress to top' : 'Retain by admin'}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1.5">
+                        {cfgPolicy === 'compress'
+                          ? 'When a chain is shorter than 7 levels, overflow commissions roll up to the topmost ancestor.'
+                          : 'Overflow commissions go to the team admin affiliate instead of the topmost ancestor.'}
+                      </p>
+                    </div>
+
+                    {/* Per-level rate inputs */}
+                    <div>
+                      <label className="block text-sm text-slate-400 mb-3">Per-level rates (%)</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {PLATFORM_DEFAULTS.map((def, i) => (
+                          <div key={i}>
+                            <label className="block text-xs text-slate-500 mb-1">
+                              Level {i + 1}
+                              <span className="ml-1 text-slate-600">· default {def}%</span>
+                            </label>
+                            <div className="relative">
+                              <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="0.01"
+                                value={cfgRates[i]}
+                                onChange={(e) => {
+                                  const next = [...cfgRates]
+                                  next[i] = e.target.value
+                                  setCfgRates(next)
+                                }}
+                                placeholder={String(def)}
+                                className="w-full bg-slate-700 border border-slate-600 rounded-lg pl-3 pr-8 py-2 text-white text-sm focus:outline-none focus:border-amber-500"
+                              />
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">%</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-slate-500 mt-2">Leave blank to treat a level as 0%.</p>
+                    </div>
+                  </>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={updateConfig.isPending}
+                  className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-900 font-semibold py-2.5 rounded-lg transition-colors"
+                >
+                  {updateConfig.isPending ? 'Saving…' : 'Save'}
+                </button>
+              </form>
+            )}
           </div>
         </div>
       )}

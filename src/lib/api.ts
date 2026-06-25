@@ -111,6 +111,41 @@ export interface SimulateSubscriptionResult {
   commissions: SimulatedCommission[]
 }
 
+export interface SalesTeam {
+  id: number
+  name: string
+  referral_prefix: string
+  commission_rate: string
+  is_active: boolean
+  notes: string | null
+  created_at: string
+  member_count: number
+}
+
+export interface CommissionConfig {
+  commission_mode: 'default' | 'custom'
+  unassigned_policy: 'compress' | 'retain_admin'
+  custom_rate_l1: string | null
+  custom_rate_l2: string | null
+  custom_rate_l3: string | null
+  custom_rate_l4: string | null
+  custom_rate_l5: string | null
+  custom_rate_l6: string | null
+  custom_rate_l7: string | null
+}
+
+export interface CommissionConfigUpdate {
+  commission_mode?: 'default' | 'custom'
+  unassigned_policy?: 'compress' | 'retain_admin'
+  custom_rate_l1?: number | null
+  custom_rate_l2?: number | null
+  custom_rate_l3?: number | null
+  custom_rate_l4?: number | null
+  custom_rate_l5?: number | null
+  custom_rate_l6?: number | null
+  custom_rate_l7?: number | null
+}
+
 // ── Auth API ───────────────────────────────────────────
 
 export const authApi = {
@@ -148,4 +183,10 @@ export const adminApi = {
     apiClient.post('/api/admin/commission', data).then((r) => r.data),
   simulateSubscription: (data: { affiliate_email: string; subscription_amount: number }) =>
     apiClient.post<SimulateSubscriptionResult>('/api/admin/simulate-subscription', data).then((r) => r.data),
+  listTeams: () =>
+    apiClient.get<{ teams: SalesTeam[] }>('/api/admin/teams').then((r) => r.data),
+  getCommissionConfig: (teamId: number) =>
+    apiClient.get<CommissionConfig>(`/api/admin/teams/${teamId}/commission-config`).then((r) => r.data),
+  updateCommissionConfig: (teamId: number, data: CommissionConfigUpdate) =>
+    apiClient.put<CommissionConfig>(`/api/admin/teams/${teamId}/commission-config`, data).then((r) => r.data),
 }
