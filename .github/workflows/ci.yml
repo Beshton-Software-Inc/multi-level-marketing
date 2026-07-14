@@ -82,7 +82,7 @@ jobs:
       - name: Run tests
         run: |
           if [ -d tests ] && [ "$(ls -A tests 2>/dev/null)" ]; then
-            pip install pytest pytest-asyncio httpx
+            pip install pytest pytest-asyncio "httpx<0.28"
             pytest tests/ -v
           else
             echo "No tests yet — skipping pytest"
