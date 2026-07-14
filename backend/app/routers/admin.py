@@ -129,7 +129,12 @@ def add_commission(
         status="pending",
     )
     db.add(commission)
-    affiliate.total_earnings = (affiliate.total_earnings or Decimal("0")) + amount
+    # Atomic UPDATE — see mlm_service.calculate_and_create_commissions for why
+    # a Python read-modify-write on total_earnings is unsafe under concurrency.
+    db.query(Affiliate).filter(Affiliate.id == affiliate.id).update(
+        {Affiliate.total_earnings: func.coalesce(Affiliate.total_earnings, 0) + amount},
+        synchronize_session=False,
+    )
     db.commit()
     db.refresh(commission)
     return {"message": "Commission added", "commission_id": commission.id, "amount": float(amount)}

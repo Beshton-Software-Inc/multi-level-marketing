@@ -97,6 +97,11 @@ class Commission(Base):
     commission_rate = Column(Numeric(6, 4), nullable=True)         # e.g. 0.2000 for the 20% L1 rate
     team_allocation_pct = Column(Numeric(5, 2), nullable=True)     # null until team system is added
 
+    # Winwinlaw's subscription_id, stamped on every commission row created by a
+    # given webhook delivery. Lets the webhook detect and no-op retried deliveries
+    # instead of paying the same subscription's cascade out twice.
+    subscription_id = Column(String, nullable=True, index=True)
+
     earner = relationship("Affiliate", foreign_keys=[earner_id], back_populates="commissions_earned")
     source = relationship("Affiliate", foreign_keys=[source_id])
 

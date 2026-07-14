@@ -206,6 +206,7 @@ def calculate_and_create_commissions(
     commission_rates: Optional[Dict[int, Decimal]] = None,
     unassigned_policy: str = "compress",
     team_admin_id: Optional[int] = None,
+    subscription_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Create commission records for all 7 levels.
 
@@ -267,9 +268,17 @@ def calculate_and_create_commissions(
             subscription_amount=subscription_amount,
             commission_rate=rate,
             team_allocation_pct=team_commission_rate,
+            subscription_id=subscription_id,
         )
         db.add(commission)
-        earner.total_earnings = (earner.total_earnings or Decimal("0")) + amount
+        # Atomic UPDATE rather than read-modify-write in Python: two concurrent
+        # webhook deliveries crediting the same earner (a shared upline ancestor)
+        # would otherwise both read the same starting balance and one increment
+        # would clobber the other. The UPDATE's row lock serializes them instead.
+        db.query(Affiliate).filter(Affiliate.id == earner.id).update(
+            {Affiliate.total_earnings: func.coalesce(Affiliate.total_earnings, 0) + amount},
+            synchronize_session=False,
+        )
 
         created.append({
             "earner_name": earner.name,
