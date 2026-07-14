@@ -46,3 +46,25 @@ def db():
     finally:
         session.close()
         Base.metadata.drop_all(bind=_engine)
+
+
+@pytest.fixture()
+def client(db):
+    """TestClient wired to the same `db` session used by test setup helpers.
+
+    Overriding get_db to yield the *same* session (rather than a fresh one)
+    means fixtures created via db.flush() in a test are visible to the
+    request handler without needing an intermediate commit.
+    """
+    from fastapi.testclient import TestClient
+    from app.database import get_db
+    from app.main import app
+
+    def _get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = _get_db
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.pop(get_db, None)

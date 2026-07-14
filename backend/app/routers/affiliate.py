@@ -78,14 +78,29 @@ def request_payout(
     if body.amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be positive")
 
-    # Check available balance: total_earnings - already pending requests
+    # Lock this affiliate's row for the rest of the request so two concurrent
+    # payout requests can't both read the same "available" figure before
+    # either commits — the second one blocks until the first finishes and
+    # then recomputes against its result. (No-op under SQLite in tests; real
+    # locking applies on Postgres in production.)
+    affiliate = (
+        db.query(Affiliate)
+        .filter(Affiliate.id == current.id)
+        .with_for_update()
+        .first()
+    )
+
+    # Available balance = total_earnings minus every payout that's already
+    # spoken for — both still-pending requests *and* ones already approved
+    # (i.e. already paid out). Only rejected requests don't count, since
+    # that money was never actually withdrawn.
     from sqlalchemy import func as sqlfunc
-    pending_total = db.query(sqlfunc.coalesce(sqlfunc.sum(PayoutRequest.amount), 0)).filter(
-        PayoutRequest.affiliate_id == current.id,
-        PayoutRequest.status == "pending",
+    committed_total = db.query(sqlfunc.coalesce(sqlfunc.sum(PayoutRequest.amount), 0)).filter(
+        PayoutRequest.affiliate_id == affiliate.id,
+        PayoutRequest.status.in_(("pending", "approved")),
     ).scalar() or Decimal("0")
 
-    available = (current.total_earnings or Decimal("0")) - Decimal(str(pending_total))
+    available = (affiliate.total_earnings or Decimal("0")) - Decimal(str(committed_total))
     if body.amount > available:
         raise HTTPException(
             status_code=400,
@@ -93,7 +108,7 @@ def request_payout(
         )
 
     payout = PayoutRequest(
-        affiliate_id=current.id,
+        affiliate_id=affiliate.id,
         amount=body.amount,
         payment_method=body.payment_method,
         payment_details=body.payment_details,

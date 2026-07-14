@@ -14,7 +14,7 @@ from typing import Optional
 
 from app.config import settings
 from app.database import get_db
-from app.models import Affiliate, TeamMembership, WebhookFailure
+from app.models import Affiliate, Commission, TeamMembership, WebhookFailure
 from app.services.mlm_service import build_effective_rates, calculate_and_create_commissions
 
 logger = logging.getLogger(__name__)
@@ -65,6 +65,19 @@ def subscription_webhook(
             "reason": f"affiliate '{payload.referral_code}' is not active",
         }
 
+    already_processed = db.query(Commission).filter(
+        Commission.subscription_id == payload.subscription_id
+    ).first()
+    if already_processed:
+        # Retried delivery of a subscription we've already paid commissions for
+        # (network timeout, at-least-once redelivery, etc.) — don't pay it twice.
+        return {
+            "status": "duplicate",
+            "reason": f"subscription_id '{payload.subscription_id}' already processed",
+            "affiliate_id": affiliate.id,
+            "subscription_id": payload.subscription_id,
+        }
+
     # Look up this affiliate's team to get commission config.
     # If no team, default to 100% with platform rates.
     team_commission_rate = Decimal("100")
@@ -99,6 +112,7 @@ def subscription_webhook(
             commission_rates=commission_rates,
             unassigned_policy=unassigned_policy,
             team_admin_id=team_admin_id,
+            subscription_id=payload.subscription_id,
         )
     except Exception as exc:
         logger.error(
