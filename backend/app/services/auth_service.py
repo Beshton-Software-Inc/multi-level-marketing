@@ -36,7 +36,8 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
 def generate_referral_code() -> str:
     chars = string.ascii_uppercase + string.digits
-    return "".join(random.choices(chars, k=8))
+    suffix = "".join(random.choices(chars, k=8))
+    return f"WWL{suffix}"
 
 
 def get_current_affiliate(
