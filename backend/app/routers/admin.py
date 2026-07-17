@@ -89,9 +89,17 @@ def list_affiliates(admin: Affiliate = Depends(require_admin), db: Session = Dep
             .filter(TeamMembership.team_id == admin.managed_team_id)
             .subquery()
         )
+        # Include team membership rows AND direct referrals (covers users who
+        # registered before the auto-enroll fix was deployed)
+        from sqlalchemy import or_
         affiliates = (
             db.query(Affiliate)
-            .filter(Affiliate.id.in_(member_ids))
+            .filter(
+                or_(
+                    Affiliate.id.in_(member_ids),
+                    Affiliate.referred_by_id == admin.id,
+                )
+            )
             .order_by(Affiliate.created_at.desc())
             .all()
         )
