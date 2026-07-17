@@ -243,5 +243,7 @@ export const adminApi = {
     apiClient.delete(`/api/admin/referral-codes/${codeId}`).then((r) => r.data),
   inviteTeamAdmin: (data: InviteTeamAdminRequest) =>
     apiClient.post<InviteTeamAdminResponse>('/api/admin/invite-team-admin', data).then((r) => r.data),
+  promoteToAdmin: (affiliateId: number, teamId?: number) =>
+    apiClient.put<AffiliateUser>(`/api/admin/affiliates/${affiliateId}/promote-to-admin`, { team_id: teamId ?? null }).then((r) => r.data),
 }
 

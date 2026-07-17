@@ -15,6 +15,7 @@ class AffiliateResponse(BaseModel):
     status: str
     total_earnings: Decimal
     is_admin: bool
+    managed_team_id: Optional[int] = None
     created_at: datetime
 
 

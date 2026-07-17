@@ -9,6 +9,33 @@ type Tab = 'affiliates' | 'payouts' | 'commission' | 'simulate' | 'team-config' 
 
 const PLATFORM_DEFAULTS = [20, 5, 5, 3, 2, 5, 10]
 
+function PromoteButton({ affiliateId, name, teamId }: { affiliateId: number; name: string; teamId: number }) {
+  const qc = useQueryClient()
+  const promote = useMutation({
+    mutationFn: () => adminApi.promoteToAdmin(affiliateId, teamId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-affiliates'] }),
+  })
+
+  function handleClick() {
+    if (!window.confirm(`Promote ${name} to Team Admin? They will be able to manage this team.`)) return
+    promote.mutate()
+  }
+
+  if (promote.isSuccess) {
+    return <span className="text-xs text-green-400">Promoted</span>
+  }
+
+  return (
+    <button
+      onClick={handleClick}
+      disabled={promote.isPending}
+      className="text-xs px-3 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 rounded-lg transition-colors disabled:opacity-50 whitespace-nowrap"
+    >
+      {promote.isPending ? 'Promoting…' : 'Make Team Admin'}
+    </button>
+  )
+}
+
 function InviteTeamAdminPanel({ teams, onSuccess }: { teams: SalesTeam[]; onSuccess: () => void }) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -504,9 +531,10 @@ export function Admin() {
                     <th className="text-left px-6 py-3">Name</th>
                     <th className="text-left px-6 py-3">Email</th>
                     <th className="text-left px-6 py-3">Ref Code</th>
+                    <th className="text-left px-6 py-3">Role</th>
                     <th className="text-right px-6 py-3">Earnings</th>
                     <th className="text-right px-6 py-3">Status</th>
-                    <th className="text-right px-6 py-3">Joined</th>
+                    <th className="text-right px-6 py-3">Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -515,10 +543,18 @@ export function Admin() {
                       <td className="px-6 py-3 text-white font-medium">{a.name}</td>
                       <td className="px-6 py-3 text-slate-400">{a.email}</td>
                       <td className="px-6 py-3 font-mono text-xs text-amber-400">{a.referral_code}</td>
+                      <td className="px-6 py-3">
+                        {a.is_admin
+                          ? <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-500/20 text-amber-400">Team Admin</span>
+                          : <span className="text-xs text-slate-500">Member</span>
+                        }
+                      </td>
                       <td className="px-6 py-3 text-right text-white">${parseFloat(a.total_earnings).toFixed(2)}</td>
                       <td className="px-6 py-3 text-right">{statusBadge(a.status)}</td>
-                      <td className="px-6 py-3 text-right text-slate-500">
-                        {new Date(a.created_at).toLocaleDateString()}
+                      <td className="px-6 py-3 text-right">
+                        {!a.is_admin && (
+                          <PromoteButton affiliateId={a.id} name={a.name} teamId={myTeamId} />
+                        )}
                       </td>
                     </tr>
                   ))}

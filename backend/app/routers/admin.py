@@ -29,6 +29,7 @@ from app.schemas.admin import (
     CommissionConfigUpdate,
     InviteTeamAdminRequest,
     InviteTeamAdminResponse,
+    PromoteToAdminRequest,
 )
 from app.schemas.affiliate import AffiliateResponse, PayoutRequestResponse
 from app.services.auth_service import require_admin, require_super_admin, generate_referral_code
@@ -665,3 +666,44 @@ def invite_team_admin(
         team_name=team.name,
         invite_sent=invite_sent,
     )
+
+
+# ── Promote affiliate to team admin ─────────────────────────────────────────
+
+@router.put("/affiliates/{affiliate_id}/promote-to-admin", response_model=AffiliateResponse)
+def promote_to_admin(
+    affiliate_id: int,
+    body: PromoteToAdminRequest,
+    admin: Affiliate = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Set is_admin=True and managed_team_id on an affiliate.
+    Team admins can only promote members of their own team.
+    Super admins must supply team_id in the request body."""
+    target = db.query(Affiliate).filter(Affiliate.id == affiliate_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Affiliate not found")
+
+    if admin.managed_team_id is not None:
+        # Team admin: target must be a member of their team
+        is_member = db.query(TeamMembership).filter(
+            TeamMembership.affiliate_id == affiliate_id,
+            TeamMembership.team_id == admin.managed_team_id,
+        ).first()
+        if not is_member:
+            raise HTTPException(status_code=403, detail="Affiliate is not a member of your team")
+        team_id = admin.managed_team_id
+    else:
+        # Super admin: team_id must be provided
+        if not body.team_id:
+            raise HTTPException(status_code=400, detail="team_id is required for super admin")
+        team = db.query(SalesTeam).filter(SalesTeam.id == body.team_id).first()
+        if not team:
+            raise HTTPException(status_code=404, detail="Team not found")
+        team_id = body.team_id
+
+    target.is_admin = True
+    target.managed_team_id = team_id
+    db.commit()
+    db.refresh(target)
+    return target

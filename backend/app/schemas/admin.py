@@ -127,6 +127,10 @@ class CommissionConfigResponse(BaseModel):
 
 # ── Team admin invite schemas ────────────────────────────────────────────────
 
+class PromoteToAdminRequest(BaseModel):
+    team_id: Optional[int] = None  # super admin only; team admin always uses their own team
+
+
 class InviteTeamAdminRequest(BaseModel):
     name: str
     email: str
