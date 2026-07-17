@@ -10,6 +10,9 @@ type Tab = 'affiliates' | 'payouts' | 'commission' | 'simulate' | 'team-config' 
 const PLATFORM_DEFAULTS = [20, 5, 5, 3, 2, 5, 10]
 
 export function Admin() {
+  const { user } = useAuth()
+  const isTeamAdmin = !!(user?.managed_team_id)
+
   const [tab, setTab] = useState<Tab>('affiliates')
   const [commEmail, setCommEmail] = useState('')
   const [commAmount, setCommAmount] = useState('')
@@ -222,9 +225,6 @@ export function Admin() {
       subscription_amount: parseFloat(simAmount),
     })
   }
-
-  const { user } = useAuth()
-  const isTeamAdmin = !!(user?.managed_team_id)
 
   const affiliates = affiliatesData?.affiliates || []
   const payouts = payoutsData?.payouts || []
