@@ -62,6 +62,14 @@ def get_current_affiliate(
 
 
 def require_admin(current: Affiliate = Depends(get_current_affiliate)) -> Affiliate:
+    """Any admin: WWL super admin or team admin."""
     if not current.is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    return current
+
+
+def require_super_admin(current: Affiliate = Depends(get_current_affiliate)) -> Affiliate:
+    """WWL super admin only — is_admin=True with no managed_team_id."""
+    if not current.is_admin or current.managed_team_id is not None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Super admin access required")
     return current

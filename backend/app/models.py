@@ -69,6 +69,9 @@ class Affiliate(Base):
     status = Column(String, default="active")
     total_earnings = Column(Numeric(10, 2), default=0)
     is_admin = Column(Boolean, default=False)
+    # Non-null → this affiliate is a team admin scoped to exactly one team.
+    # Null + is_admin=True → WWL super admin (full access).
+    managed_team_id = Column(Integer, ForeignKey("sales_teams.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     referred_by = relationship("Affiliate", remote_side=[id], back_populates="referrals")

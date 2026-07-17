@@ -33,6 +33,7 @@ export interface AffiliateUser {
   status: string
   total_earnings: string
   is_admin: boolean
+  managed_team_id: number | null
   created_at: string
 }
 

@@ -23,6 +23,7 @@ class AffiliateInToken(BaseModel):
     email: str
     referral_code: str
     is_admin: bool
+    managed_team_id: Optional[int] = None
     status: str
 
 

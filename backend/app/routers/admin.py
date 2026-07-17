@@ -25,7 +25,7 @@ from app.schemas.admin import (
     CommissionConfigUpdate,
 )
 from app.schemas.affiliate import AffiliateResponse, PayoutRequestResponse
-from app.services.auth_service import require_admin
+from app.services.auth_service import require_admin, require_super_admin
 from app.services.mlm_service import build_effective_rates, preview_commission_breakdown
 from app.services.referral_code_service import generate_code as _generate_code, deactivate_code as _deactivate_code
 
@@ -33,7 +33,7 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
 @router.get("/stats", response_model=AdminStats)
-def admin_stats(admin: Affiliate = Depends(require_admin), db: Session = Depends(get_db)):
+def admin_stats(admin: Affiliate = Depends(require_super_admin), db: Session = Depends(get_db)):
     total_affiliates = db.query(Affiliate).count()
     active_affiliates = db.query(Affiliate).filter(Affiliate.status == "active").count()
 
@@ -57,13 +57,13 @@ def admin_stats(admin: Affiliate = Depends(require_admin), db: Session = Depends
 
 
 @router.get("/affiliates")
-def list_affiliates(admin: Affiliate = Depends(require_admin), db: Session = Depends(get_db)):
+def list_affiliates(admin: Affiliate = Depends(require_super_admin), db: Session = Depends(get_db)):
     affiliates = db.query(Affiliate).order_by(Affiliate.created_at.desc()).all()
     return {"affiliates": [AffiliateResponse.model_validate(a) for a in affiliates]}
 
 
 @router.get("/payouts")
-def list_payouts(admin: Affiliate = Depends(require_admin), db: Session = Depends(get_db)):
+def list_payouts(admin: Affiliate = Depends(require_super_admin), db: Session = Depends(get_db)):
     payouts = db.query(PayoutRequest).order_by(PayoutRequest.created_at.desc()).all()
     result = []
     for p in payouts:
@@ -79,7 +79,7 @@ def list_payouts(admin: Affiliate = Depends(require_admin), db: Session = Depend
 def update_payout(
     payout_id: int,
     body: PayoutUpdateRequest,
-    admin: Affiliate = Depends(require_admin),
+    admin: Affiliate = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
     payout = db.query(PayoutRequest).filter(PayoutRequest.id == payout_id).first()
@@ -113,7 +113,7 @@ def update_payout(
 @router.post("/commission")
 def add_commission(
     body: ManualCommissionRequest,
-    admin: Affiliate = Depends(require_admin),
+    admin: Affiliate = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
     affiliate = db.query(Affiliate).filter(Affiliate.email == body.affiliate_email).first()
@@ -144,7 +144,7 @@ def add_commission(
 @router.post("/simulate-subscription")
 def simulate_subscription(
     body: SimulateSubscriptionRequest,
-    admin: Affiliate = Depends(require_admin),
+    admin: Affiliate = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
     affiliate = db.query(Affiliate).filter(Affiliate.email == body.affiliate_email).first()
@@ -218,15 +218,18 @@ def _team_response(team: SalesTeam) -> dict:
 
 @router.get("/teams")
 def list_teams(admin: Affiliate = Depends(require_admin), db: Session = Depends(get_db)):
-    """List all sales teams with their commission rates and member counts."""
-    teams = db.query(SalesTeam).order_by(SalesTeam.created_at.desc()).all()
+    """List sales teams. Super admin sees all; team admin sees only their own team."""
+    q = db.query(SalesTeam)
+    if admin.managed_team_id is not None:
+        q = q.filter(SalesTeam.id == admin.managed_team_id)
+    teams = q.order_by(SalesTeam.created_at.desc()).all()
     return {"teams": [_team_response(t) for t in teams]}
 
 
 @router.post("/teams", status_code=201)
 def create_team(
     body: SalesTeamCreate,
-    admin: Affiliate = Depends(require_admin),
+    admin: Affiliate = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
     """Create a new sales team and assign its commission rate."""
@@ -275,7 +278,7 @@ def get_team(
 def update_team(
     team_id: int,
     body: SalesTeamUpdate,
-    admin: Affiliate = Depends(require_admin),
+    admin: Affiliate = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
     """Update a team's commission rate, name, notes, or active status."""
@@ -303,7 +306,7 @@ def update_team(
 def add_team_member(
     team_id: int,
     body: AddTeamMemberRequest,
-    admin: Affiliate = Depends(require_admin),
+    admin: Affiliate = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
     """Add an affiliate to a team. Each affiliate can belong to only one team."""
@@ -338,7 +341,7 @@ def update_team_member_role(
     team_id: int,
     affiliate_id: int,
     body: SetTeamMemberRoleRequest,
-    admin: Affiliate = Depends(require_admin),
+    admin: Affiliate = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
     """Change a team member's role between admin and member."""
@@ -358,7 +361,7 @@ def update_team_member_role(
 def remove_team_member(
     team_id: int,
     affiliate_id: int,
-    admin: Affiliate = Depends(require_admin),
+    admin: Affiliate = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
     """Remove an affiliate from a team."""
@@ -379,7 +382,7 @@ def remove_team_member(
 @router.get("/teams/{team_id}/commission-config", response_model=CommissionConfigResponse)
 def get_commission_config(
     team_id: int,
-    admin: Affiliate = Depends(require_admin),
+    admin: Affiliate = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
     """Return a team's commission mode, unassigned policy, and custom per-level rates."""
@@ -393,7 +396,7 @@ def get_commission_config(
 def update_commission_config(
     team_id: int,
     body: CommissionConfigUpdate,
-    admin: Affiliate = Depends(require_admin),
+    admin: Affiliate = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
     """Update a team's commission mode, unassigned policy, and/or custom per-level rates.
@@ -475,7 +478,9 @@ def list_referral_codes(
     admin: Affiliate = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    """List all referral codes generated for a team."""
+    """List all referral codes for a team. Team admins can only access their own team."""
+    if admin.managed_team_id is not None and admin.managed_team_id != team_id:
+        raise HTTPException(status_code=403, detail="Access restricted to your own team")
     q = db.query(ReferralCode).filter(ReferralCode.team_id == team_id)
     if active_only:
         q = q.filter(ReferralCode.is_active.is_(True))
@@ -503,6 +508,8 @@ def create_referral_code(
     db: Session = Depends(get_db),
 ):
     """Generate a new {PREFIX}-{8 random alphanum} referral code and sync it to WWL."""
+    if admin.managed_team_id is not None and admin.managed_team_id != team_id:
+        raise HTTPException(status_code=403, detail="Access restricted to your own team")
     team = db.query(SalesTeam).filter(SalesTeam.id == team_id).first()
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
@@ -527,6 +534,10 @@ def deactivate_referral_code(
     db: Session = Depends(get_db),
 ):
     """Deactivate a referral code so it no longer routes subscriptions. Synced to WWL."""
+    if admin.managed_team_id is not None:
+        code = db.query(ReferralCode).filter(ReferralCode.id == code_id).first()
+        if not code or code.team_id != admin.managed_team_id:
+            raise HTTPException(status_code=403, detail="Access restricted to your own team")
     try:
         _deactivate_code(db, code_id)
     except ValueError as exc:

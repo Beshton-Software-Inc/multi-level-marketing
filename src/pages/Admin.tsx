@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Users, DollarSign, CreditCard, TrendingUp, Check, X, Plus, RefreshCw } from 'lucide-react'
 import { adminApi, SimulateSubscriptionResult, CommissionConfigUpdate, SalesTeam } from '../lib/api'
 import { StatCard } from '../components/StatCard'
+import { useAuth } from '../contexts/AuthContext'
 
 type Tab = 'affiliates' | 'payouts' | 'commission' | 'simulate' | 'team-config' | 'teams'
 
@@ -162,6 +163,14 @@ export function Admin() {
   })
 
   useEffect(() => {
+    if (!isTeamAdmin || !teamsData?.teams) return
+    const myTeam = teamsData.teams.find(t => t.id === user!.managed_team_id)
+    if (myTeam && (!selectedTeamForCodes || selectedTeamForCodes.id !== myTeam.id)) {
+      setSelectedTeamForCodes(myTeam)
+    }
+  }, [isTeamAdmin, teamsData, user?.managed_team_id])
+
+  useEffect(() => {
     if (!commissionConfig) return
     setCfgMode(commissionConfig.commission_mode)
     setCfgPolicy(commissionConfig.unassigned_policy)
@@ -209,6 +218,9 @@ export function Admin() {
     })
   }
 
+  const { user } = useAuth()
+  const isTeamAdmin = !!(user?.managed_team_id)
+
   const affiliates = affiliatesData?.affiliates || []
   const payouts = payoutsData?.payouts || []
 
@@ -224,6 +236,103 @@ export function Admin() {
       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${colors[status] || 'bg-slate-700 text-slate-400'}`}>
         {status}
       </span>
+    )
+  }
+
+  // ── Team admin view (scoped — only their team's referral codes) ──────────
+  if (isTeamAdmin) {
+    const myTeam = (teamsData?.teams ?? []).find(t => t.id === user!.managed_team_id)
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Team Admin</h1>
+          <p className="text-slate-400 mt-1">
+            Manage referral codes for{' '}
+            <span className="text-amber-400 font-medium">{myTeam?.name ?? '…'}</span>
+          </p>
+        </div>
+
+        {myTeam && (
+          <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-700 flex items-center justify-between gap-4">
+              <div>
+                <h3 className="text-base font-semibold text-white">
+                  Referral Codes — <span className="text-amber-400">{myTeam.name}</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Format: <span className="font-mono">{myTeam.referral_prefix}-XXXXXXXX</span>
+                </p>
+              </div>
+              <div className="flex items-center gap-3 flex-shrink-0">
+                {codesMsg && <span className="text-xs text-green-400">{codesMsg}</span>}
+                <input
+                  type="text"
+                  value={newCodeNotes}
+                  onChange={(e) => setNewCodeNotes(e.target.value)}
+                  placeholder="Notes (optional)"
+                  className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-amber-500 w-44"
+                />
+                <button
+                  onClick={() => {
+                    if (!selectedTeamForCodes || selectedTeamForCodes.id !== myTeam.id) {
+                      setSelectedTeamForCodes(myTeam)
+                    }
+                    createCode.mutate()
+                  }}
+                  disabled={createCode.isPending}
+                  className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-900 text-sm font-semibold px-4 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+                >
+                  <Plus size={14} />
+                  {createCode.isPending ? 'Generating…' : 'Generate Code'}
+                </button>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-slate-500 text-xs border-b border-slate-700 bg-slate-700/30">
+                    <th className="text-left px-6 py-3">Code</th>
+                    <th className="text-left px-6 py-3">Notes</th>
+                    <th className="text-left px-6 py-3">Status</th>
+                    <th className="text-left px-6 py-3">Created</th>
+                    <th className="text-right px-6 py-3">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(codesData?.codes ?? []).map((c) => (
+                    <tr key={c.id} className="border-b border-slate-700/50 hover:bg-slate-700/10">
+                      <td className="px-6 py-3 font-mono text-amber-400 text-xs tracking-wide">{c.code}</td>
+                      <td className="px-6 py-3 text-slate-400 text-xs">{c.notes || '—'}</td>
+                      <td className="px-6 py-3">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                          c.is_active ? 'bg-green-500/20 text-green-400' : 'bg-slate-600 text-slate-500'
+                        }`}>
+                          {c.is_active ? 'active' : 'inactive'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-3 text-slate-500 text-xs">{new Date(c.created_at).toLocaleDateString()}</td>
+                      <td className="px-6 py-3 text-right">
+                        {c.is_active && (
+                          <button
+                            onClick={() => deactivateCode.mutate(c.id)}
+                            disabled={deactivateCode.isPending}
+                            className="text-xs px-3 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors"
+                          >
+                            Deactivate
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {(codesData?.codes ?? []).length === 0 && (
+                <div className="p-8 text-center text-slate-500 text-sm">No codes yet. Generate one above.</div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     )
   }
 
