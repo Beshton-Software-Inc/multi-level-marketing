@@ -24,9 +24,12 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
     # Accept both personal affiliate codes (affiliates.referral_code) and
     # team codes (referral_codes table) so dashboard-shared links work.
     referrer = None
+    team_id_for_membership = None
     if body.referral_code:
         # 1. Check personal affiliate code
         referrer = db.query(Affiliate).filter(Affiliate.referral_code == body.referral_code).first()
+        if referrer and referrer.managed_team_id:
+            team_id_for_membership = referrer.managed_team_id
 
         if not referrer:
             # 2. Check team referral code — place registrant under the code's creator
@@ -36,6 +39,7 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
                 .first()
             )
             if team_code:
+                team_id_for_membership = team_code.team_id
                 if team_code.created_by_affiliate_id:
                     referrer = db.query(Affiliate).filter(Affiliate.id == team_code.created_by_affiliate_id).first()
                 else:
@@ -70,6 +74,11 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
     db.add(affiliate)
     db.commit()
     db.refresh(affiliate)
+
+    # Auto-enroll in team when registered via a team code or a team admin's personal code
+    if team_id_for_membership:
+        db.add(TeamMembership(team_id=team_id_for_membership, affiliate_id=affiliate.id, role="member"))
+        db.commit()
 
     token = create_access_token({"sub": str(affiliate.id)})
     return TokenResponse(
