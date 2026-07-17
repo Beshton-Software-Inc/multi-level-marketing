@@ -428,7 +428,7 @@ export function Admin() {
         {/* Tabs for team admin */}
         <div className="border-b border-slate-700">
           <div className="flex gap-6">
-            {(['codes', 'affiliates', 'payouts', 'teams'] as const).map((t) => (
+            {(['codes', 'affiliates', 'payouts', 'commission-rates', 'teams'] as const).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t as Tab)}
@@ -438,7 +438,11 @@ export function Admin() {
                     : 'text-slate-400 border-transparent hover:text-white'
                 }`}
               >
-                {t === 'codes' ? 'Referral Codes' : t === 'affiliates' ? 'My Affiliates' : t === 'payouts' ? 'Payouts' : 'Create Team'}
+                {t === 'codes' ? 'Referral Codes'
+                  : t === 'affiliates' ? 'My Affiliates'
+                  : t === 'payouts' ? 'Payouts'
+                  : t === 'commission-rates' ? 'Commission Rates'
+                  : 'Create Team'}
               </button>
             ))}
           </div>
@@ -599,6 +603,83 @@ export function Admin() {
               {payouts.length === 0 && (
                 <div className="p-8 text-center text-slate-500 text-sm">No payout requests from your team.</div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Commission rates panel — team admin edits their own team's config */}
+        {tab === 'commission-rates' && (
+          <div className="max-w-lg">
+            <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
+              <h3 className="text-lg font-semibold text-white mb-1">Commission Rates</h3>
+              <p className="text-sm text-slate-400 mb-6">
+                Set how commissions are distributed across 7 levels for your team.
+                Custom mode overrides the platform defaults (L1 20% · L2 5% · L3 5% · L4 3% · L5 2% · L6 5% · L7 10%).
+              </p>
+              <form onSubmit={handleSaveConfig} className="space-y-6">
+                {cfgMsg && <div className="bg-green-500/10 border border-green-500/30 rounded-lg px-4 py-3 text-green-400 text-sm">{cfgMsg}</div>}
+                {cfgError && <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm">{cfgError}</div>}
+
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">Commission Mode</label>
+                  <div className="flex rounded-lg overflow-hidden border border-slate-600">
+                    {(['default', 'custom'] as const).map((m) => (
+                      <button key={m} type="button" onClick={() => setCfgMode(m)}
+                        className={`flex-1 py-2 text-sm font-medium transition-colors ${cfgMode === m ? 'bg-amber-500 text-slate-900' : 'bg-slate-700 text-slate-400 hover:text-white'}`}>
+                        {m === 'default' ? 'Default (platform rates)' : 'Custom'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {cfgMode === 'custom' && (
+                  <>
+                    <div>
+                      <label className="block text-sm text-slate-400 mb-2">Unfilled level policy</label>
+                      <div className="flex rounded-lg overflow-hidden border border-slate-600">
+                        {(['compress', 'retain_admin'] as const).map((p) => (
+                          <button key={p} type="button" onClick={() => setCfgPolicy(p)}
+                            className={`flex-1 py-2 text-sm font-medium transition-colors ${cfgPolicy === p ? 'bg-amber-500 text-slate-900' : 'bg-slate-700 text-slate-400 hover:text-white'}`}>
+                            {p === 'compress' ? 'Compress to top' : 'Retain by admin'}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1.5">
+                        {cfgPolicy === 'compress'
+                          ? 'Overflow commissions roll up to the topmost ancestor.'
+                          : 'Overflow commissions go to the team admin affiliate.'}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-slate-400 mb-3">Per-level rates (%)</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {PLATFORM_DEFAULTS.map((def, i) => (
+                          <div key={i}>
+                            <label className="block text-xs text-slate-500 mb-1">
+                              Level {i + 1}<span className="ml-1 text-slate-600">· default {def}%</span>
+                            </label>
+                            <div className="relative">
+                              <input type="number" min="0" max="100" step="0.01"
+                                value={cfgRates[i]}
+                                onChange={(e) => { const next = [...cfgRates]; next[i] = e.target.value; setCfgRates(next) }}
+                                placeholder={String(def)}
+                                className="w-full bg-slate-700 border border-slate-600 rounded-lg pl-3 pr-8 py-2 text-white text-sm focus:outline-none focus:border-amber-500" />
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">%</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-slate-500 mt-2">Leave blank to treat a level as 0%.</p>
+                    </div>
+                  </>
+                )}
+
+                <button type="submit" disabled={updateConfig.isPending}
+                  className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-900 font-semibold py-2.5 rounded-lg transition-colors">
+                  {updateConfig.isPending ? 'Saving…' : 'Save'}
+                </button>
+              </form>
             </div>
           </div>
         )}
