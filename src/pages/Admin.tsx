@@ -5,7 +5,7 @@ import { adminApi, SimulateSubscriptionResult, CommissionConfigUpdate, SalesTeam
 import { StatCard } from '../components/StatCard'
 import { useAuth } from '../contexts/AuthContext'
 
-type Tab = 'affiliates' | 'payouts' | 'commission' | 'simulate' | 'team-config' | 'teams'
+type Tab = 'affiliates' | 'payouts' | 'commission' | 'simulate' | 'team-config' | 'teams' | 'codes' | 'commission-rates'
 
 const PLATFORM_DEFAULTS = [20, 5, 5, 3, 2, 5, 10]
 
@@ -165,8 +165,13 @@ export function Admin() {
   useEffect(() => {
     if (!isTeamAdmin || !teamsData?.teams) return
     const myTeam = teamsData.teams.find(t => t.id === user!.managed_team_id)
-    if (myTeam && (!selectedTeamForCodes || selectedTeamForCodes.id !== myTeam.id)) {
-      setSelectedTeamForCodes(myTeam)
+    if (myTeam) {
+      if (!selectedTeamForCodes || selectedTeamForCodes.id !== myTeam.id) {
+        setSelectedTeamForCodes(myTeam)
+      }
+      if (selectedTeamId !== myTeam.id) {
+        setSelectedTeamId(myTeam.id)
+      }
     }
   }, [isTeamAdmin, teamsData, user?.managed_team_id])
 
@@ -239,20 +244,41 @@ export function Admin() {
     )
   }
 
-  // ── Team admin view (scoped — only their team's referral codes) ──────────
+  // ── Team admin view (scoped — own team's affiliates, codes, commission rates) ──
   if (isTeamAdmin) {
     const myTeam = (teamsData?.teams ?? []).find(t => t.id === user!.managed_team_id)
+    const myTeamId = user!.managed_team_id!
+
     return (
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-white">Team Admin</h1>
           <p className="text-slate-400 mt-1">
-            Manage referral codes for{' '}
-            <span className="text-amber-400 font-medium">{myTeam?.name ?? '…'}</span>
+            Managing <span className="text-amber-400 font-medium">{myTeam?.name ?? '…'}</span>
           </p>
         </div>
 
-        {myTeam && (
+        {/* Tabs for team admin */}
+        <div className="border-b border-slate-700">
+          <div className="flex gap-6">
+            {(['codes', 'affiliates', 'commission-rates'] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t as Tab)}
+                className={`pb-3 text-sm font-medium capitalize transition-colors border-b-2 whitespace-nowrap ${
+                  tab === t
+                    ? 'text-amber-400 border-amber-400'
+                    : 'text-slate-400 border-transparent hover:text-white'
+                }`}
+              >
+                {t === 'codes' ? 'Referral Codes' : t === 'affiliates' ? 'My Affiliates' : 'Commission Rates'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Referral codes panel */}
+        {tab === 'codes' && myTeam && (
           <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-700 flex items-center justify-between gap-4">
               <div>
@@ -273,12 +299,7 @@ export function Admin() {
                   className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-amber-500 w-44"
                 />
                 <button
-                  onClick={() => {
-                    if (!selectedTeamForCodes || selectedTeamForCodes.id !== myTeam.id) {
-                      setSelectedTeamForCodes(myTeam)
-                    }
-                    createCode.mutate()
-                  }}
+                  onClick={() => createCode.mutate()}
                   disabled={createCode.isPending}
                   className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-900 text-sm font-semibold px-4 py-1.5 rounded-lg transition-colors whitespace-nowrap"
                 >
@@ -329,6 +350,116 @@ export function Admin() {
               {(codesData?.codes ?? []).length === 0 && (
                 <div className="p-8 text-center text-slate-500 text-sm">No codes yet. Generate one above.</div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Team affiliates panel */}
+        {tab === 'affiliates' && (
+          <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-slate-500 text-xs border-b border-slate-700 bg-slate-700/30">
+                    <th className="text-left px-6 py-3">Name</th>
+                    <th className="text-left px-6 py-3">Email</th>
+                    <th className="text-left px-6 py-3">Ref Code</th>
+                    <th className="text-right px-6 py-3">Earnings</th>
+                    <th className="text-right px-6 py-3">Status</th>
+                    <th className="text-right px-6 py-3">Joined</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {affiliates.map((a) => (
+                    <tr key={a.id} className="border-b border-slate-700/50 hover:bg-slate-700/20">
+                      <td className="px-6 py-3 text-white font-medium">{a.name}</td>
+                      <td className="px-6 py-3 text-slate-400">{a.email}</td>
+                      <td className="px-6 py-3 font-mono text-xs text-amber-400">{a.referral_code}</td>
+                      <td className="px-6 py-3 text-right text-white">${parseFloat(a.total_earnings).toFixed(2)}</td>
+                      <td className="px-6 py-3 text-right">{statusBadge(a.status)}</td>
+                      <td className="px-6 py-3 text-right text-slate-500">
+                        {new Date(a.created_at).toLocaleDateString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {affiliates.length === 0 && (
+                <div className="p-8 text-center text-slate-500 text-sm">No members in your team yet.</div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Commission rates panel (scoped to own team) */}
+        {tab === 'commission-rates' && myTeam && (
+          <div className="max-w-lg">
+            <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
+              <h3 className="text-lg font-semibold text-white mb-1">Commission Rates</h3>
+              <p className="text-sm text-slate-400 mb-6">
+                Set how commissions are distributed across 7 levels for{' '}
+                <span className="text-amber-400">{myTeam.name}</span>.
+                Custom mode overrides the platform defaults (L1 20% · L2 5% · L3 5% · L4 3% · L5 2% · L6 5% · L7 10%).
+              </p>
+              {cfgMsg && (
+                <div className="mb-4 bg-green-500/10 border border-green-500/30 rounded-lg px-4 py-3 text-green-400 text-sm">{cfgMsg}</div>
+              )}
+              {cfgError && (
+                <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm">{cfgError}</div>
+              )}
+              <form onSubmit={handleSaveConfig} className="space-y-6">
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">Commission Mode</label>
+                  <div className="flex rounded-lg overflow-hidden border border-slate-600">
+                    {(['default', 'custom'] as const).map((m) => (
+                      <button key={m} type="button" onClick={() => setCfgMode(m)}
+                        className={`flex-1 py-2 text-sm font-medium transition-colors ${cfgMode === m ? 'bg-amber-500 text-slate-900' : 'bg-slate-700 text-slate-400 hover:text-white'}`}>
+                        {m === 'default' ? 'Default (platform rates)' : 'Custom'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {cfgMode === 'custom' && (
+                  <>
+                    <div>
+                      <label className="block text-sm text-slate-400 mb-2">Unfilled level policy</label>
+                      <div className="flex rounded-lg overflow-hidden border border-slate-600">
+                        {(['compress', 'retain_admin'] as const).map((p) => (
+                          <button key={p} type="button" onClick={() => setCfgPolicy(p)}
+                            className={`flex-1 py-2 text-sm font-medium transition-colors ${cfgPolicy === p ? 'bg-amber-500 text-slate-900' : 'bg-slate-700 text-slate-400 hover:text-white'}`}>
+                            {p === 'compress' ? 'Compress to top' : 'Retain by admin'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm text-slate-400 mb-3">Per-level rates (%)</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {PLATFORM_DEFAULTS.map((def, i) => (
+                          <div key={i}>
+                            <label className="block text-xs text-slate-500 mb-1">
+                              Level {i + 1}<span className="ml-1 text-slate-600">· default {def}%</span>
+                            </label>
+                            <div className="relative">
+                              <input type="number" min="0" max="100" step="0.01"
+                                value={cfgRates[i]}
+                                onChange={(e) => { const next = [...cfgRates]; next[i] = e.target.value; setCfgRates(next) }}
+                                placeholder={String(def)}
+                                className="w-full bg-slate-700 border border-slate-600 rounded-lg pl-3 pr-8 py-2 text-white text-sm focus:outline-none focus:border-amber-500"
+                              />
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">%</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+                <button type="submit" disabled={updateConfig.isPending}
+                  className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-900 font-semibold py-2.5 rounded-lg transition-colors">
+                  {updateConfig.isPending ? 'Saving…' : 'Save'}
+                </button>
+              </form>
             </div>
           </div>
         )}

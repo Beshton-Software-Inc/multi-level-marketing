@@ -57,8 +57,22 @@ def admin_stats(admin: Affiliate = Depends(require_super_admin), db: Session = D
 
 
 @router.get("/affiliates")
-def list_affiliates(admin: Affiliate = Depends(require_super_admin), db: Session = Depends(get_db)):
-    affiliates = db.query(Affiliate).order_by(Affiliate.created_at.desc()).all()
+def list_affiliates(admin: Affiliate = Depends(require_admin), db: Session = Depends(get_db)):
+    """Super admin sees all affiliates; team admin sees only their team's members."""
+    if admin.managed_team_id is not None:
+        member_ids = (
+            db.query(TeamMembership.affiliate_id)
+            .filter(TeamMembership.team_id == admin.managed_team_id)
+            .subquery()
+        )
+        affiliates = (
+            db.query(Affiliate)
+            .filter(Affiliate.id.in_(member_ids))
+            .order_by(Affiliate.created_at.desc())
+            .all()
+        )
+    else:
+        affiliates = db.query(Affiliate).order_by(Affiliate.created_at.desc()).all()
     return {"affiliates": [AffiliateResponse.model_validate(a) for a in affiliates]}
 
 
@@ -382,10 +396,12 @@ def remove_team_member(
 @router.get("/teams/{team_id}/commission-config", response_model=CommissionConfigResponse)
 def get_commission_config(
     team_id: int,
-    admin: Affiliate = Depends(require_super_admin),
+    admin: Affiliate = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    """Return a team's commission mode, unassigned policy, and custom per-level rates."""
+    """Return a team's commission config. Team admin can only access their own team."""
+    if admin.managed_team_id is not None and admin.managed_team_id != team_id:
+        raise HTTPException(status_code=403, detail="Access restricted to your own team")
     team = db.query(SalesTeam).filter(SalesTeam.id == team_id).first()
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
@@ -396,15 +412,17 @@ def get_commission_config(
 def update_commission_config(
     team_id: int,
     body: CommissionConfigUpdate,
-    admin: Affiliate = Depends(require_super_admin),
+    admin: Affiliate = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    """Update a team's commission mode, unassigned policy, and/or custom per-level rates.
+    """Update a team's commission config. Team admin can only update their own team.
 
     Send only the fields you want to change — omitted fields are left as-is.
     custom_rate_lN values are stored as percentages (e.g. 20 = 20%).
     They are only used when commission_mode is set to "custom".
     """
+    if admin.managed_team_id is not None and admin.managed_team_id != team_id:
+        raise HTTPException(status_code=403, detail="Access restricted to your own team")
     team = db.query(SalesTeam).filter(SalesTeam.id == team_id).first()
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
