@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     WWL_INTERNAL_URL: str = "http://localhost:8000"
     WWL_SYNC_SECRET: str = "change-this-sync-secret"
 
+    # Frontend URL added to CORS allow-list. Set per-environment in Railway.
+    FRONTEND_URL: str = "http://localhost:5173"
+
     class Config:
         env_file = ".env"
         extra = "ignore"
