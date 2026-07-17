@@ -124,12 +124,6 @@ export function Layout() {
           >
             <Menu size={20} />
           </button>
-          <div className="flex items-center gap-2 ml-auto">
-            <span className="text-xs text-slate-500">Code:</span>
-            <span className="text-xs font-mono text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded">
-              {user?.referral_code}
-            </span>
-          </div>
         </header>
 
         <main className="flex-1 overflow-y-auto p-6">
