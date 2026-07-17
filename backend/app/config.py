@@ -10,6 +10,12 @@ class Settings(BaseSettings):
     # Must match MLM_WEBHOOK_SECRET in the winwinlaw backend .env.
     MLM_WEBHOOK_SECRET: str = "change-this-shared-secret"
 
+    # WWL internal sync — MLM calls this to register/deactivate referral codes.
+    # WWL_INTERNAL_URL must point to the winwinlaw backend (e.g. http://winwinlaw-backend:8000).
+    # WWL_SYNC_SECRET must match MLM_SYNC_SECRET in the winwinlaw backend .env.
+    WWL_INTERNAL_URL: str = "http://localhost:8000"
+    WWL_SYNC_SECRET: str = "change-this-sync-secret"
+
     class Config:
         env_file = ".env"
         extra = "ignore"

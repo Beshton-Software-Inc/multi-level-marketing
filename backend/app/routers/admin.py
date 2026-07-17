@@ -7,7 +7,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Affiliate, Commission, PayoutRequest, SalesTeam, TeamMembership, WebhookFailure
+from app.models import Affiliate, Commission, PayoutRequest, ReferralCode, SalesTeam, TeamMembership, WebhookFailure
 from app.schemas.admin import (
     AdminStats,
     PayoutUpdateRequest,
@@ -27,6 +27,7 @@ from app.schemas.admin import (
 from app.schemas.affiliate import AffiliateResponse, PayoutRequestResponse
 from app.services.auth_service import require_admin
 from app.services.mlm_service import build_effective_rates, preview_commission_breakdown
+from app.services.referral_code_service import generate_code as _generate_code, deactivate_code as _deactivate_code
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -463,3 +464,70 @@ def resolve_webhook_failure(
     failure.resolved_at = datetime.now(timezone.utc)
     db.commit()
     return {"message": "Marked as resolved", "id": failure_id, "subscription_id": failure.subscription_id}
+
+
+# ── Referral codes ───────────────────────────────────────────────────────────
+
+@router.get("/teams/{team_id}/referral-codes")
+def list_referral_codes(
+    team_id: int,
+    active_only: bool = False,
+    admin: Affiliate = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """List all referral codes generated for a team."""
+    q = db.query(ReferralCode).filter(ReferralCode.team_id == team_id)
+    if active_only:
+        q = q.filter(ReferralCode.is_active.is_(True))
+    codes = q.order_by(ReferralCode.created_at.desc()).all()
+    return {
+        "codes": [
+            {
+                "id": c.id,
+                "code": c.code,
+                "notes": c.notes,
+                "is_active": c.is_active,
+                "created_at": c.created_at,
+                "deactivated_at": c.deactivated_at,
+            }
+            for c in codes
+        ]
+    }
+
+
+@router.post("/teams/{team_id}/referral-codes", status_code=201)
+def create_referral_code(
+    team_id: int,
+    body: dict,
+    admin: Affiliate = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Generate a new {PREFIX}-{8 random alphanum} referral code and sync it to WWL."""
+    team = db.query(SalesTeam).filter(SalesTeam.id == team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    try:
+        entry = _generate_code(db, team, created_by=admin, notes=body.get("notes"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "id": entry.id,
+        "code": entry.code,
+        "team_id": team_id,
+        "notes": entry.notes,
+        "is_active": entry.is_active,
+        "created_at": entry.created_at,
+    }
+
+
+@router.delete("/referral-codes/{code_id}", status_code=204)
+def deactivate_referral_code(
+    code_id: int,
+    admin: Affiliate = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Deactivate a referral code so it no longer routes subscriptions. Synced to WWL."""
+    try:
+        _deactivate_code(db, code_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
