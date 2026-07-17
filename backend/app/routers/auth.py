@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Affiliate
+from app.models import Affiliate, ReferralCode, SalesTeam, TeamMembership
 from app.schemas.auth import RegisterRequest, LoginRequest, TokenResponse, AffiliateInToken
 from app.schemas.admin import AcceptInviteRequest
 from app.services.auth_service import (
@@ -20,10 +20,32 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    # Find referrer if referral_code provided
+    # Find referrer if referral_code provided.
+    # Accept both personal affiliate codes (affiliates.referral_code) and
+    # team codes (referral_codes table) so dashboard-shared links work.
     referrer = None
     if body.referral_code:
+        # 1. Check personal affiliate code
         referrer = db.query(Affiliate).filter(Affiliate.referral_code == body.referral_code).first()
+
+        if not referrer:
+            # 2. Check team referral code — place registrant under the code's creator
+            team_code = (
+                db.query(ReferralCode)
+                .filter(ReferralCode.code == body.referral_code, ReferralCode.is_active.is_(True))
+                .first()
+            )
+            if team_code:
+                if team_code.created_by_affiliate_id:
+                    referrer = db.query(Affiliate).filter(Affiliate.id == team_code.created_by_affiliate_id).first()
+                else:
+                    # Fall back to the team's primary admin
+                    referrer = (
+                        db.query(Affiliate)
+                        .filter(Affiliate.managed_team_id == team_code.team_id, Affiliate.is_admin.is_(True))
+                        .first()
+                    )
+
         if not referrer:
             raise HTTPException(status_code=400, detail="Invalid referral code")
 
