@@ -33,19 +33,35 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
 @router.get("/stats", response_model=AdminStats)
-def admin_stats(admin: Affiliate = Depends(require_super_admin), db: Session = Depends(get_db)):
-    total_affiliates = db.query(Affiliate).count()
-    active_affiliates = db.query(Affiliate).filter(Affiliate.status == "active").count()
-
-    total_commissions = db.query(func.coalesce(func.sum(Commission.amount), 0)).filter(
-        Commission.status == "paid"
-    ).scalar() or Decimal("0")
-
-    pending_payouts_amount = db.query(func.coalesce(func.sum(PayoutRequest.amount), 0)).filter(
-        PayoutRequest.status == "pending"
-    ).scalar() or Decimal("0")
-
-    pending_payouts_count = db.query(PayoutRequest).filter(PayoutRequest.status == "pending").count()
+def admin_stats(admin: Affiliate = Depends(require_admin), db: Session = Depends(get_db)):
+    """Super admin sees platform-wide stats; team admin sees their team's stats."""
+    if admin.managed_team_id is not None:
+        member_ids = (
+            db.query(TeamMembership.affiliate_id)
+            .filter(TeamMembership.team_id == admin.managed_team_id)
+            .subquery()
+        )
+        total_affiliates = db.query(Affiliate).filter(Affiliate.id.in_(member_ids)).count()
+        active_affiliates = db.query(Affiliate).filter(Affiliate.id.in_(member_ids), Affiliate.status == "active").count()
+        total_commissions = db.query(func.coalesce(func.sum(Commission.amount), 0)).filter(
+            Commission.earner_id.in_(member_ids), Commission.status == "paid"
+        ).scalar() or Decimal("0")
+        pending_payouts_amount = db.query(func.coalesce(func.sum(PayoutRequest.amount), 0)).filter(
+            PayoutRequest.affiliate_id.in_(member_ids), PayoutRequest.status == "pending"
+        ).scalar() or Decimal("0")
+        pending_payouts_count = db.query(PayoutRequest).filter(
+            PayoutRequest.affiliate_id.in_(member_ids), PayoutRequest.status == "pending"
+        ).count()
+    else:
+        total_affiliates = db.query(Affiliate).count()
+        active_affiliates = db.query(Affiliate).filter(Affiliate.status == "active").count()
+        total_commissions = db.query(func.coalesce(func.sum(Commission.amount), 0)).filter(
+            Commission.status == "paid"
+        ).scalar() or Decimal("0")
+        pending_payouts_amount = db.query(func.coalesce(func.sum(PayoutRequest.amount), 0)).filter(
+            PayoutRequest.status == "pending"
+        ).scalar() or Decimal("0")
+        pending_payouts_count = db.query(PayoutRequest).filter(PayoutRequest.status == "pending").count()
 
     return AdminStats(
         total_affiliates=total_affiliates,
@@ -77,8 +93,17 @@ def list_affiliates(admin: Affiliate = Depends(require_admin), db: Session = Dep
 
 
 @router.get("/payouts")
-def list_payouts(admin: Affiliate = Depends(require_super_admin), db: Session = Depends(get_db)):
-    payouts = db.query(PayoutRequest).order_by(PayoutRequest.created_at.desc()).all()
+def list_payouts(admin: Affiliate = Depends(require_admin), db: Session = Depends(get_db)):
+    """Super admin sees all payouts; team admin sees only their team members' payouts."""
+    q = db.query(PayoutRequest)
+    if admin.managed_team_id is not None:
+        member_ids = (
+            db.query(TeamMembership.affiliate_id)
+            .filter(TeamMembership.team_id == admin.managed_team_id)
+            .subquery()
+        )
+        q = q.filter(PayoutRequest.affiliate_id.in_(member_ids))
+    payouts = q.order_by(PayoutRequest.created_at.desc()).all()
     result = []
     for p in payouts:
         data = PayoutRequestResponse.model_validate(p)
@@ -243,10 +268,10 @@ def list_teams(admin: Affiliate = Depends(require_admin), db: Session = Depends(
 @router.post("/teams", status_code=201)
 def create_team(
     body: SalesTeamCreate,
-    admin: Affiliate = Depends(require_super_admin),
+    admin: Affiliate = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    """Create a new sales team and assign its commission rate."""
+    """Create a new sales team. Open to all admins."""
     if db.query(SalesTeam).filter(SalesTeam.name == body.name).first():
         raise HTTPException(status_code=400, detail="A team with this name already exists")
     if db.query(SalesTeam).filter(SalesTeam.referral_prefix == body.referral_prefix).first():
@@ -396,12 +421,10 @@ def remove_team_member(
 @router.get("/teams/{team_id}/commission-config", response_model=CommissionConfigResponse)
 def get_commission_config(
     team_id: int,
-    admin: Affiliate = Depends(require_admin),
+    admin: Affiliate = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
-    """Return a team's commission config. Team admin can only access their own team."""
-    if admin.managed_team_id is not None and admin.managed_team_id != team_id:
-        raise HTTPException(status_code=403, detail="Access restricted to your own team")
+    """Return a team's commission config. WWL super admin only."""
     team = db.query(SalesTeam).filter(SalesTeam.id == team_id).first()
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
@@ -412,17 +435,15 @@ def get_commission_config(
 def update_commission_config(
     team_id: int,
     body: CommissionConfigUpdate,
-    admin: Affiliate = Depends(require_admin),
+    admin: Affiliate = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
-    """Update a team's commission config. Team admin can only update their own team.
+    """Update a team's commission config. WWL super admin only.
 
     Send only the fields you want to change — omitted fields are left as-is.
     custom_rate_lN values are stored as percentages (e.g. 20 = 20%).
     They are only used when commission_mode is set to "custom".
     """
-    if admin.managed_team_id is not None and admin.managed_team_id != team_id:
-        raise HTTPException(status_code=403, detail="Access restricted to your own team")
     team = db.query(SalesTeam).filter(SalesTeam.id == team_id).first()
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")

@@ -258,10 +258,21 @@ export function Admin() {
           </p>
         </div>
 
+        {/* Scoped stats */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard icon={<Users size={20} />} label="Team Members" value={stats?.total_affiliates ?? '…'} />
+          <StatCard icon={<TrendingUp size={20} />} label="Active Members" value={stats?.active_affiliates ?? '…'} />
+          <StatCard icon={<DollarSign size={20} />} label="Team Commissions Paid"
+            value={stats ? `$${parseFloat(stats.total_commissions).toFixed(2)}` : '…'} accent />
+          <StatCard icon={<CreditCard size={20} />} label="Pending Payouts"
+            value={stats ? `$${parseFloat(stats.pending_payouts_amount).toFixed(2)}` : '…'}
+            subtitle={stats ? `${stats.pending_payouts_count} request(s)` : ''} />
+        </div>
+
         {/* Tabs for team admin */}
         <div className="border-b border-slate-700">
           <div className="flex gap-6">
-            {(['codes', 'affiliates', 'commission-rates'] as const).map((t) => (
+            {(['codes', 'affiliates', 'payouts', 'teams'] as const).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t as Tab)}
@@ -271,7 +282,7 @@ export function Admin() {
                     : 'text-slate-400 border-transparent hover:text-white'
                 }`}
               >
-                {t === 'codes' ? 'Referral Codes' : t === 'affiliates' ? 'My Affiliates' : 'Commission Rates'}
+                {t === 'codes' ? 'Referral Codes' : t === 'affiliates' ? 'My Affiliates' : t === 'payouts' ? 'Payouts' : 'Create Team'}
               </button>
             ))}
           </div>
@@ -391,73 +402,86 @@ export function Admin() {
           </div>
         )}
 
-        {/* Commission rates panel (scoped to own team) */}
-        {tab === 'commission-rates' && myTeam && (
+        {/* Payouts panel (scoped to team members) */}
+        {tab === 'payouts' && (
+          <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-slate-500 text-xs border-b border-slate-700 bg-slate-700/30">
+                    <th className="text-left px-6 py-3">Affiliate</th>
+                    <th className="text-left px-6 py-3">Amount</th>
+                    <th className="text-left px-6 py-3">Method</th>
+                    <th className="text-left px-6 py-3">Date</th>
+                    <th className="text-right px-6 py-3">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {payouts.map((p) => (
+                    <tr key={p.id} className="border-b border-slate-700/50 hover:bg-slate-700/20">
+                      <td className="px-6 py-3">
+                        <p className="text-white font-medium">{p.affiliate_name}</p>
+                        <p className="text-xs text-slate-500">{p.affiliate_email}</p>
+                      </td>
+                      <td className="px-6 py-3 text-amber-400 font-semibold">${parseFloat(p.amount).toFixed(2)}</td>
+                      <td className="px-6 py-3 text-slate-400">{p.payment_method}</td>
+                      <td className="px-6 py-3 text-slate-400">{new Date(p.created_at).toLocaleDateString()}</td>
+                      <td className="px-6 py-3 text-right">{statusBadge(p.status)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {payouts.length === 0 && (
+                <div className="p-8 text-center text-slate-500 text-sm">No payout requests from your team.</div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Create team panel */}
+        {tab === 'teams' && (
           <div className="max-w-lg">
             <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
-              <h3 className="text-lg font-semibold text-white mb-1">Commission Rates</h3>
-              <p className="text-sm text-slate-400 mb-6">
-                Set how commissions are distributed across 7 levels for{' '}
-                <span className="text-amber-400">{myTeam.name}</span>.
-                Custom mode overrides the platform defaults (L1 20% · L2 5% · L3 5% · L4 3% · L5 2% · L6 5% · L7 10%).
+              <h3 className="text-lg font-semibold text-white mb-1">Create Sales Team</h3>
+              <p className="text-sm text-slate-400 mb-5">
+                Each team gets a unique prefix used to namespace its referral codes (e.g. prefix <span className="font-mono text-amber-400">NS</span> → codes like <span className="font-mono text-amber-400">NS-A3KX9Q7B</span>).
               </p>
-              {cfgMsg && (
-                <div className="mb-4 bg-green-500/10 border border-green-500/30 rounded-lg px-4 py-3 text-green-400 text-sm">{cfgMsg}</div>
-              )}
-              {cfgError && (
-                <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm">{cfgError}</div>
-              )}
-              <form onSubmit={handleSaveConfig} className="space-y-6">
+              {teamsMsg && <div className="mb-4 bg-green-500/10 border border-green-500/30 rounded-lg px-4 py-3 text-green-400 text-sm">{teamsMsg}</div>}
+              {teamsError && <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm">{teamsError}</div>}
+              <form onSubmit={handleCreateTeam} className="space-y-4">
                 <div>
-                  <label className="block text-sm text-slate-400 mb-2">Commission Mode</label>
-                  <div className="flex rounded-lg overflow-hidden border border-slate-600">
-                    {(['default', 'custom'] as const).map((m) => (
-                      <button key={m} type="button" onClick={() => setCfgMode(m)}
-                        className={`flex-1 py-2 text-sm font-medium transition-colors ${cfgMode === m ? 'bg-amber-500 text-slate-900' : 'bg-slate-700 text-slate-400 hover:text-white'}`}>
-                        {m === 'default' ? 'Default (platform rates)' : 'Custom'}
-                      </button>
-                    ))}
+                  <label className="block text-sm text-slate-400 mb-1.5">Team Name</label>
+                  <input type="text" value={newTeamName} onChange={(e) => setNewTeamName(e.target.value)} required
+                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-amber-500"
+                    placeholder="NS Partners" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm text-slate-400 mb-1.5">Prefix <span className="text-slate-500">(2–4 letters)</span></label>
+                    <input type="text" value={newTeamPrefix}
+                      onChange={(e) => setNewTeamPrefix(e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4))}
+                      required maxLength={4}
+                      className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2.5 text-white font-mono focus:outline-none focus:border-amber-500 uppercase"
+                      placeholder="NS" />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-slate-400 mb-1.5">Commission Rate <span className="text-slate-500">(%)</span></label>
+                    <input type="number" min="0" max="100" step="0.01" value={newTeamRate}
+                      onChange={(e) => setNewTeamRate(e.target.value)} required
+                      className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-amber-500"
+                      placeholder="100" />
                   </div>
                 </div>
-                {cfgMode === 'custom' && (
-                  <>
-                    <div>
-                      <label className="block text-sm text-slate-400 mb-2">Unfilled level policy</label>
-                      <div className="flex rounded-lg overflow-hidden border border-slate-600">
-                        {(['compress', 'retain_admin'] as const).map((p) => (
-                          <button key={p} type="button" onClick={() => setCfgPolicy(p)}
-                            className={`flex-1 py-2 text-sm font-medium transition-colors ${cfgPolicy === p ? 'bg-amber-500 text-slate-900' : 'bg-slate-700 text-slate-400 hover:text-white'}`}>
-                            {p === 'compress' ? 'Compress to top' : 'Retain by admin'}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm text-slate-400 mb-3">Per-level rates (%)</label>
-                      <div className="grid grid-cols-2 gap-3">
-                        {PLATFORM_DEFAULTS.map((def, i) => (
-                          <div key={i}>
-                            <label className="block text-xs text-slate-500 mb-1">
-                              Level {i + 1}<span className="ml-1 text-slate-600">· default {def}%</span>
-                            </label>
-                            <div className="relative">
-                              <input type="number" min="0" max="100" step="0.01"
-                                value={cfgRates[i]}
-                                onChange={(e) => { const next = [...cfgRates]; next[i] = e.target.value; setCfgRates(next) }}
-                                placeholder={String(def)}
-                                className="w-full bg-slate-700 border border-slate-600 rounded-lg pl-3 pr-8 py-2 text-white text-sm focus:outline-none focus:border-amber-500"
-                              />
-                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">%</span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </>
-                )}
-                <button type="submit" disabled={updateConfig.isPending}
-                  className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-900 font-semibold py-2.5 rounded-lg transition-colors">
-                  {updateConfig.isPending ? 'Saving…' : 'Save'}
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1.5">Notes <span className="text-slate-500">(optional)</span></label>
+                  <input type="text" value={newTeamNotes} onChange={(e) => setNewTeamNotes(e.target.value)}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-amber-500"
+                    placeholder="Internal notes about this team" />
+                </div>
+                <button type="submit" disabled={createTeam.isPending}
+                  className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-900 font-semibold py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2">
+                  <Plus size={16} />
+                  {createTeam.isPending ? 'Creating…' : 'Create Team'}
                 </button>
               </form>
             </div>
