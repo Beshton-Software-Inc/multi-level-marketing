@@ -103,7 +103,7 @@ export function Admin() {
       setTeamsError('Prefix must be 2–4 uppercase letters (e.g. NS, WWL).')
       return
     }
-    createTeam.mutate({ name: newTeamName, referral_prefix: prefix, commission_rate: parseFloat(newTeamRate), notes: newTeamNotes || undefined })
+    createTeam.mutate({ name: newTeamName, referral_prefix: prefix, commission_rate: isTeamAdmin ? 0 : parseFloat(newTeamRate), notes: newTeamNotes || undefined })
   }
 
   const updateConfig = useMutation({
@@ -890,33 +890,17 @@ export function Admin() {
                     placeholder="NS Partners"
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm text-slate-400 mb-1.5">Prefix <span className="text-slate-500">(2–4 letters)</span></label>
-                    <input
-                      type="text"
-                      value={newTeamPrefix}
-                      onChange={(e) => setNewTeamPrefix(e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4))}
-                      required
-                      maxLength={4}
-                      className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2.5 text-white font-mono focus:outline-none focus:border-amber-500 uppercase"
-                      placeholder="NS"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm text-slate-400 mb-1.5">Commission Rate <span className="text-slate-500">(%)</span></label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="0.01"
-                      value={newTeamRate}
-                      onChange={(e) => setNewTeamRate(e.target.value)}
-                      required
-                      className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-amber-500"
-                      placeholder="100"
-                    />
-                  </div>
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1.5">Prefix <span className="text-slate-500">(2–4 letters)</span></label>
+                  <input
+                    type="text"
+                    value={newTeamPrefix}
+                    onChange={(e) => setNewTeamPrefix(e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4))}
+                    required
+                    maxLength={4}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2.5 text-white font-mono focus:outline-none focus:border-amber-500 uppercase"
+                    placeholder="NS"
+                  />
                 </div>
                 <div>
                   <label className="block text-sm text-slate-400 mb-1.5">Notes <span className="text-slate-500">(optional)</span></label>
