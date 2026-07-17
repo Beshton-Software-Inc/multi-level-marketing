@@ -1,9 +1,60 @@
 import React, { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueries } from '@tanstack/react-query'
 import { DollarSign, Users, TrendingUp, Calendar, Copy, Check, ExternalLink, Shield } from 'lucide-react'
-import { affiliateApi, adminApi } from '../lib/api'
+import { affiliateApi, adminApi, SalesTeam, ReferralCode } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { StatCard } from '../components/StatCard'
+
+function TeamReferralCard({ team, codes }: { team: SalesTeam; codes: ReferralCode[] }) {
+  const [copiedId, setCopiedId] = useState<number | null>(null)
+  const origin = window.location.origin
+
+  function copy(code: string, id: number) {
+    navigator.clipboard.writeText(`${origin}/register?ref=${code}`)
+    setCopiedId(id)
+    setTimeout(() => setCopiedId(null), 2000)
+  }
+
+  return (
+    <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-white font-semibold">{team.name}</h3>
+          <p className="text-xs text-slate-500 mt-0.5 font-mono">
+            {team.referral_prefix}-XXXXXXXX
+          </p>
+        </div>
+        <span className="text-xs px-2 py-1 rounded-full bg-amber-500/10 text-amber-400 font-medium">
+          {codes.length} active code{codes.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+
+      {codes.length === 0 ? (
+        <p className="text-xs text-slate-500">
+          No active codes yet — go to <span className="text-amber-400">Admin → Referral Codes</span> to generate one.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {codes.map((c) => {
+            const url = `${origin}/register?ref=${c.code}`
+            return (
+              <div key={c.id} className="flex items-center gap-2 bg-slate-700/50 border border-slate-600 rounded-lg px-3 py-2">
+                <span className="flex-1 font-mono text-xs text-amber-400 truncate">{url}</span>
+                {c.notes && <span className="text-xs text-slate-500 shrink-0">{c.notes}</span>}
+                <button
+                  onClick={() => copy(c.code, c.id)}
+                  className="shrink-0 flex items-center gap-1 text-xs px-2 py-1 bg-amber-500 hover:bg-amber-400 text-slate-900 font-semibold rounded-md transition-colors"
+                >
+                  {copiedId === c.id ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export function Dashboard() {
   const { user } = useAuth()
@@ -27,7 +78,17 @@ export function Dashboard() {
     enabled: isTeamAdmin,
   })
 
-  const myTeam = isTeamAdmin ? teamsData?.teams?.[0] : null
+  const managedTeams: SalesTeam[] = isTeamAdmin ? (teamsData?.teams ?? []) : []
+
+  // Fetch active codes for every managed team in parallel
+  const teamCodeQueries = useQueries({
+    queries: managedTeams.map((t) => ({
+      queryKey: ['admin-referral-codes', t.id],
+      queryFn: () => adminApi.listReferralCodes(t.id),
+      enabled: isTeamAdmin,
+    })),
+  })
+
   const referralUrl = `${window.location.origin}/register?ref=${user?.referral_code}`
 
   const copyReferralLink = async () => {
@@ -102,30 +163,20 @@ export function Dashboard() {
 
       {/* Referral link / Team info */}
       {isTeamAdmin ? (
-        <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
-          <div className="flex items-center gap-2 mb-1">
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
             <Shield size={16} className="text-amber-400" />
-            <h2 className="text-sm font-semibold text-slate-300">Your Team</h2>
+            <h2 className="text-sm font-semibold text-slate-300">My Teams &amp; Referral Links</h2>
           </div>
-          <p className="text-xs text-slate-500 mb-4">
-            Referral codes for your team use the prefix below. Generate them from the Admin panel.
-          </p>
-          {myTeam ? (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-3">
-                <span className="text-slate-400 text-sm">Team</span>
-                <span className="text-white font-medium">{myTeam.name}</span>
-              </div>
-              <div className="flex items-center justify-between bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-3">
-                <span className="text-slate-400 text-sm">Code format</span>
-                <span className="font-mono text-amber-400 text-sm">{myTeam.referral_prefix}-XXXXXXXX</span>
-              </div>
-              <p className="text-xs text-slate-500">
-                Go to <span className="text-amber-400">Admin → Referral Codes</span> to generate and share codes with your team members.
-              </p>
-            </div>
+          {managedTeams.length === 0 ? (
+            <p className="text-slate-500 text-sm">Loading teams…</p>
           ) : (
-            <p className="text-slate-500 text-sm">Loading team info…</p>
+            managedTeams.map((team, idx) => {
+              const codes: ReferralCode[] = teamCodeQueries[idx]?.data?.codes?.filter((c) => c.is_active) ?? []
+              return (
+                <TeamReferralCard key={team.id} team={team} codes={codes} />
+              )
+            })
           )}
         </div>
       ) : (

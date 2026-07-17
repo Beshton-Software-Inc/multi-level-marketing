@@ -17,6 +17,7 @@ class SalesTeam(Base):
     commission_rate = Column(Numeric(5, 2), nullable=False, default=0)  # 0–100, % of each sub that flows to this team
     is_active = Column(Boolean, default=True)
     notes = Column(String, nullable=True)
+    created_by_affiliate_id = Column(Integer, ForeignKey("affiliates.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Commission structure — "default" uses the platform's fixed 7-level rates.

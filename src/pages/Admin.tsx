@@ -449,15 +449,31 @@ export function Admin() {
         </div>
 
         {/* Referral codes panel */}
-        {tab === 'codes' && myTeam && (
+        {tab === 'codes' && (
           <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-700 flex items-center justify-between gap-4">
+            <div className="px-6 py-4 border-b border-slate-700 flex items-center justify-between gap-4 flex-wrap">
               <div>
-                <h3 className="text-base font-semibold text-white">
-                  Referral Codes — <span className="text-amber-400">{myTeam.name}</span>
-                </h3>
+                {/* Team selector when managing multiple teams */}
+                {(teamsData?.teams ?? []).length > 1 ? (
+                  <select
+                    value={selectedTeamForCodes?.id ?? ''}
+                    onChange={(e) => {
+                      const t = (teamsData?.teams ?? []).find(t => t.id === Number(e.target.value))
+                      if (t) setSelectedTeamForCodes(t)
+                    }}
+                    className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-sm font-semibold focus:outline-none focus:border-amber-500 mb-1"
+                  >
+                    {(teamsData?.teams ?? []).map(t => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <h3 className="text-base font-semibold text-white">
+                    Referral Codes — <span className="text-amber-400">{selectedTeamForCodes?.name ?? '…'}</span>
+                  </h3>
+                )}
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Format: <span className="font-mono">{myTeam.referral_prefix}-XXXXXXXX</span>
+                  Format: <span className="font-mono">{selectedTeamForCodes?.referral_prefix ?? '…'}-XXXXXXXX</span>
                 </p>
               </div>
               <div className="flex items-center gap-3 flex-shrink-0">

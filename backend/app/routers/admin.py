@@ -250,6 +250,15 @@ def simulate_subscription(
 
 # ── Sales Team management ───────────────────────────────────────────────────
 
+def _managed_team_ids(admin: Affiliate, db: Session) -> list:
+    """Return all team IDs this admin manages: primary team + any they created."""
+    if admin.managed_team_id is None:
+        return []  # super admin — caller should skip the filter entirely
+    ids: set = {admin.managed_team_id}
+    created = db.query(SalesTeam.id).filter(SalesTeam.created_by_affiliate_id == admin.id).all()
+    ids.update(row.id for row in created)
+    return list(ids)
+
 def _team_response(team: SalesTeam) -> dict:
     return {
         "id": team.id,
@@ -265,10 +274,10 @@ def _team_response(team: SalesTeam) -> dict:
 
 @router.get("/teams")
 def list_teams(admin: Affiliate = Depends(require_admin), db: Session = Depends(get_db)):
-    """List sales teams. Super admin sees all; team admin sees only their own team."""
+    """List sales teams. Super admin sees all; team admin sees all teams they manage."""
     q = db.query(SalesTeam)
     if admin.managed_team_id is not None:
-        q = q.filter(SalesTeam.id == admin.managed_team_id)
+        q = q.filter(SalesTeam.id.in_(_managed_team_ids(admin, db)))
     teams = q.order_by(SalesTeam.created_at.desc()).all()
     return {"teams": [_team_response(t) for t in teams]}
 
@@ -290,6 +299,7 @@ def create_team(
         referral_prefix=body.referral_prefix,
         commission_rate=body.commission_rate,
         notes=body.notes,
+        created_by_affiliate_id=admin.id if admin.managed_team_id is not None else None,
     )
     db.add(team)
     db.commit()
@@ -433,8 +443,8 @@ def get_commission_config(
     db: Session = Depends(get_db),
 ):
     """Return a team's commission config. Team admins can only access their own team."""
-    if admin.managed_team_id is not None and admin.managed_team_id != team_id:
-        raise HTTPException(status_code=403, detail="Access restricted to your own team")
+    if admin.managed_team_id is not None and team_id not in _managed_team_ids(admin, db):
+        raise HTTPException(status_code=403, detail="Access restricted to your managed teams")
     team = db.query(SalesTeam).filter(SalesTeam.id == team_id).first()
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
@@ -454,8 +464,8 @@ def update_commission_config(
     custom_rate_lN values are stored as percentages (e.g. 20 = 20%).
     They are only used when commission_mode is set to "custom".
     """
-    if admin.managed_team_id is not None and admin.managed_team_id != team_id:
-        raise HTTPException(status_code=403, detail="Access restricted to your own team")
+    if admin.managed_team_id is not None and team_id not in _managed_team_ids(admin, db):
+        raise HTTPException(status_code=403, detail="Access restricted to your managed teams")
     team = db.query(SalesTeam).filter(SalesTeam.id == team_id).first()
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
@@ -530,8 +540,8 @@ def list_referral_codes(
     db: Session = Depends(get_db),
 ):
     """List all referral codes for a team. Team admins can only access their own team."""
-    if admin.managed_team_id is not None and admin.managed_team_id != team_id:
-        raise HTTPException(status_code=403, detail="Access restricted to your own team")
+    if admin.managed_team_id is not None and team_id not in _managed_team_ids(admin, db):
+        raise HTTPException(status_code=403, detail="Access restricted to your managed teams")
     q = db.query(ReferralCode).filter(ReferralCode.team_id == team_id)
     if active_only:
         q = q.filter(ReferralCode.is_active.is_(True))
@@ -559,8 +569,8 @@ def create_referral_code(
     db: Session = Depends(get_db),
 ):
     """Generate a new {PREFIX}-{8 random alphanum} referral code and sync it to WWL."""
-    if admin.managed_team_id is not None and admin.managed_team_id != team_id:
-        raise HTTPException(status_code=403, detail="Access restricted to your own team")
+    if admin.managed_team_id is not None and team_id not in _managed_team_ids(admin, db):
+        raise HTTPException(status_code=403, detail="Access restricted to your managed teams")
     team = db.query(SalesTeam).filter(SalesTeam.id == team_id).first()
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
@@ -587,8 +597,8 @@ def deactivate_referral_code(
     """Deactivate a referral code so it no longer routes subscriptions. Synced to WWL."""
     if admin.managed_team_id is not None:
         code = db.query(ReferralCode).filter(ReferralCode.id == code_id).first()
-        if not code or code.team_id != admin.managed_team_id:
-            raise HTTPException(status_code=403, detail="Access restricted to your own team")
+        if not code or code.team_id not in _managed_team_ids(admin, db):
+            raise HTTPException(status_code=403, detail="Access restricted to your managed teams")
     try:
         _deactivate_code(db, code_id)
     except ValueError as exc:
