@@ -28,8 +28,17 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
     if body.referral_code:
         # 1. Check personal affiliate code
         referrer = db.query(Affiliate).filter(Affiliate.referral_code == body.referral_code).first()
-        if referrer and referrer.managed_team_id:
-            team_id_for_membership = referrer.managed_team_id
+        if referrer:
+            if referrer.managed_team_id:
+                # Referrer is a team admin — join their primary team
+                team_id_for_membership = referrer.managed_team_id
+            else:
+                # Referrer is a regular member — propagate their team membership
+                referrer_mem = db.query(TeamMembership).filter(
+                    TeamMembership.affiliate_id == referrer.id
+                ).first()
+                if referrer_mem:
+                    team_id_for_membership = referrer_mem.team_id
 
         if not referrer:
             # 2. Check team referral code — place registrant under the code's creator

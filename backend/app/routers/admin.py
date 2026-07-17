@@ -84,19 +84,19 @@ def admin_stats(admin: Affiliate = Depends(require_admin), db: Session = Depends
 def list_affiliates(admin: Affiliate = Depends(require_admin), db: Session = Depends(get_db)):
     """Super admin sees all affiliates; team admin sees only their team's members."""
     if admin.managed_team_id is not None:
+        all_team_ids = _managed_team_ids(admin, db)
         member_ids = (
             db.query(TeamMembership.affiliate_id)
-            .filter(TeamMembership.team_id == admin.managed_team_id)
+            .filter(TeamMembership.team_id.in_(all_team_ids))
             .subquery()
         )
-        # Include team membership rows AND direct referrals (covers users who
-        # registered before the auto-enroll fix was deployed)
         from sqlalchemy import or_
         affiliates = (
             db.query(Affiliate)
             .filter(
                 or_(
                     Affiliate.id.in_(member_ids),
+                    # Fallback for members who registered before auto-enroll was deployed
                     Affiliate.referred_by_id == admin.id,
                 )
             )
