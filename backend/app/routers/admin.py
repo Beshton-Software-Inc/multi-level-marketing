@@ -32,6 +32,7 @@ from app.schemas.admin import (
     PromoteToAdminRequest,
 )
 from app.schemas.affiliate import AffiliateResponse, PayoutRequestResponse
+from app.services.mlm_service import get_team_members
 from app.services.auth_service import require_admin, require_super_admin, generate_referral_code
 from app.services.email_service import send_invite_email
 from app.services.mlm_service import build_effective_rates, preview_commission_breakdown
@@ -84,25 +85,25 @@ def admin_stats(admin: Affiliate = Depends(require_admin), db: Session = Depends
 def list_affiliates(admin: Affiliate = Depends(require_admin), db: Session = Depends(get_db)):
     """Super admin sees all affiliates; team admin sees only their team's members."""
     if admin.managed_team_id is not None:
+        # Walk the full referral tree (same logic as "My Team") to collect all descendant IDs
+        tree_members = get_team_members(admin.id, db)
+        descendant_ids = {m["id"] for m in tree_members}
+
+        # Also include explicit TeamMembership rows (members added via team codes
+        # whose referrer is a deeper node, not the admin directly)
         all_team_ids = _managed_team_ids(admin, db)
-        member_ids = (
-            db.query(TeamMembership.affiliate_id)
-            .filter(TeamMembership.team_id.in_(all_team_ids))
-            .subquery()
-        )
-        from sqlalchemy import or_
+        if all_team_ids:
+            for row in db.query(TeamMembership.affiliate_id).filter(
+                TeamMembership.team_id.in_(all_team_ids)
+            ).all():
+                descendant_ids.add(row.affiliate_id)
+
         affiliates = (
             db.query(Affiliate)
-            .filter(
-                or_(
-                    Affiliate.id.in_(member_ids),
-                    # Fallback for members who registered before auto-enroll was deployed
-                    Affiliate.referred_by_id == admin.id,
-                )
-            )
+            .filter(Affiliate.id.in_(descendant_ids))
             .order_by(Affiliate.created_at.desc())
             .all()
-        )
+        ) if descendant_ids else []
     else:
         affiliates = db.query(Affiliate).order_by(Affiliate.created_at.desc()).all()
     return {"affiliates": [AffiliateResponse.model_validate(a) for a in affiliates]}
