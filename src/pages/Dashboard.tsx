@@ -1,13 +1,14 @@
 import React, { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { DollarSign, Users, TrendingUp, Calendar, Copy, Check, ExternalLink } from 'lucide-react'
-import { affiliateApi } from '../lib/api'
+import { DollarSign, Users, TrendingUp, Calendar, Copy, Check, ExternalLink, Shield } from 'lucide-react'
+import { affiliateApi, adminApi } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { StatCard } from '../components/StatCard'
 
 export function Dashboard() {
   const { user } = useAuth()
   const [copied, setCopied] = useState(false)
+  const isTeamAdmin = !!(user?.managed_team_id)
 
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ['affiliate-stats'],
@@ -17,8 +18,16 @@ export function Dashboard() {
   const { data: earningsData, isLoading: earningsLoading } = useQuery({
     queryKey: ['earnings'],
     queryFn: affiliateApi.getEarnings,
+    enabled: !isTeamAdmin,
   })
 
+  const { data: teamsData } = useQuery({
+    queryKey: ['admin-teams'],
+    queryFn: adminApi.listTeams,
+    enabled: isTeamAdmin,
+  })
+
+  const myTeam = isTeamAdmin ? teamsData?.teams?.[0] : null
   const referralUrl = `${window.location.origin}/register?ref=${user?.referral_code}`
 
   const copyReferralLink = async () => {
@@ -91,36 +100,65 @@ export function Dashboard() {
         />
       </div>
 
-      {/* Referral link */}
-      <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
-        <h2 className="text-sm font-semibold text-slate-300 mb-1">Your Referral Link</h2>
-        <p className="text-xs text-slate-500 mb-4">Share this link to earn commissions</p>
-        <div className="flex items-center gap-3">
-          <div className="flex-1 bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-2.5 font-mono text-sm text-amber-400 truncate">
-            {referralUrl}
+      {/* Referral link / Team info */}
+      {isTeamAdmin ? (
+        <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
+          <div className="flex items-center gap-2 mb-1">
+            <Shield size={16} className="text-amber-400" />
+            <h2 className="text-sm font-semibold text-slate-300">Your Team</h2>
           </div>
-          <button
-            onClick={copyReferralLink}
-            className="flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-slate-900 font-semibold px-4 py-2.5 rounded-lg transition-colors text-sm whitespace-nowrap"
-          >
-            {copied ? <><Check size={16} /> Copied!</> : <><Copy size={16} /> Copy</>}
-          </button>
-          <a
-            href={referralUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="p-2.5 border border-slate-600 hover:border-slate-500 rounded-lg text-slate-400 hover:text-white transition-colors"
-          >
-            <ExternalLink size={16} />
-          </a>
+          <p className="text-xs text-slate-500 mb-4">
+            Referral codes for your team use the prefix below. Generate them from the Admin panel.
+          </p>
+          {myTeam ? (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-3">
+                <span className="text-slate-400 text-sm">Team</span>
+                <span className="text-white font-medium">{myTeam.name}</span>
+              </div>
+              <div className="flex items-center justify-between bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-3">
+                <span className="text-slate-400 text-sm">Code format</span>
+                <span className="font-mono text-amber-400 text-sm">{myTeam.referral_prefix}-XXXXXXXX</span>
+              </div>
+              <p className="text-xs text-slate-500">
+                Go to <span className="text-amber-400">Admin → Referral Codes</span> to generate and share codes with your team members.
+              </p>
+            </div>
+          ) : (
+            <p className="text-slate-500 text-sm">Loading team info…</p>
+          )}
         </div>
-        <p className="text-xs text-slate-600 mt-3">
-          Referral code: <span className="font-mono text-slate-400">{user?.referral_code}</span>
-        </p>
-      </div>
+      ) : (
+        <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
+          <h2 className="text-sm font-semibold text-slate-300 mb-1">Your Referral Link</h2>
+          <p className="text-xs text-slate-500 mb-4">Share this link to earn commissions</p>
+          <div className="flex items-center gap-3">
+            <div className="flex-1 bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-2.5 font-mono text-sm text-amber-400 truncate">
+              {referralUrl}
+            </div>
+            <button
+              onClick={copyReferralLink}
+              className="flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-slate-900 font-semibold px-4 py-2.5 rounded-lg transition-colors text-sm whitespace-nowrap"
+            >
+              {copied ? <><Check size={16} /> Copied!</> : <><Copy size={16} /> Copy</>}
+            </button>
+            <a
+              href={referralUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="p-2.5 border border-slate-600 hover:border-slate-500 rounded-lg text-slate-400 hover:text-white transition-colors"
+            >
+              <ExternalLink size={16} />
+            </a>
+          </div>
+          <p className="text-xs text-slate-600 mt-3">
+            Referral code: <span className="font-mono text-slate-400">{user?.referral_code}</span>
+          </p>
+        </div>
+      )}
 
-      {/* Recent earnings */}
-      <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
+      {/* Recent earnings — hidden for team admins who manage codes, not personal earnings */}
+      {!isTeamAdmin && <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-700">
           <h2 className="font-semibold text-white">Recent Earnings</h2>
         </div>
@@ -158,7 +196,7 @@ export function Dashboard() {
             </tbody>
           </table>
         )}
-      </div>
+      </div>}
     </div>
   )
 }

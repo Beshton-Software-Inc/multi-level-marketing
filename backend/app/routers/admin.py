@@ -1,4 +1,6 @@
+import random
 import secrets
+import string
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
@@ -618,11 +620,16 @@ def invite_team_admin(
     if db.query(Affiliate).filter(Affiliate.email == body.email).first():
         raise HTTPException(status_code=400, detail="An account with this email already exists")
 
-    # Generate a unique referral code for the new admin
-    while True:
-        code = generate_referral_code()
+    # Generate a unique personal referral code using the team prefix (e.g. NS-A3KX9Q7B)
+    _chars = string.ascii_uppercase + string.digits
+    prefix = team.referral_prefix
+    for _ in range(20):
+        suffix = "".join(random.choices(_chars, k=8))
+        code = f"{prefix}-{suffix}"
         if not db.query(Affiliate).filter(Affiliate.referral_code == code).first():
             break
+    else:
+        raise HTTPException(status_code=500, detail="Could not generate a unique referral code")
 
     # Create invite token (48h expiry)
     token = secrets.token_urlsafe(32)
