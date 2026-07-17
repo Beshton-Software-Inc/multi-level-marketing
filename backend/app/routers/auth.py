@@ -49,9 +49,14 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
         if not referrer:
             raise HTTPException(status_code=400, detail="Invalid referral code")
 
-    # Generate unique referral code
+    # Inherit the prefix from the referral code used to register (e.g. "NS" from "NS-XXXXXXXX")
+    code_prefix = ""
+    if body.referral_code and '-' in body.referral_code:
+        code_prefix = body.referral_code.split('-')[0]
+
+    # Generate unique referral code with the matching prefix
     while True:
-        code = generate_referral_code()
+        code = generate_referral_code(code_prefix)
         if not db.query(Affiliate).filter(Affiliate.referral_code == code).first():
             break
 

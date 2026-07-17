@@ -34,10 +34,10 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
 
 
-def generate_referral_code() -> str:
+def generate_referral_code(prefix: str = "") -> str:
     chars = string.ascii_uppercase + string.digits
     suffix = "".join(random.choices(chars, k=8))
-    return f"WWL{suffix}"
+    return f"{prefix}-{suffix}" if prefix else f"WWL{suffix}"
 
 
 def get_current_affiliate(
