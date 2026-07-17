@@ -122,6 +122,29 @@ export interface SalesTeam {
   member_count: number
 }
 
+export interface SalesTeamCreate {
+  name: string
+  referral_prefix: string
+  commission_rate: number
+  notes?: string
+}
+
+export interface SalesTeamUpdate {
+  name?: string
+  commission_rate?: number
+  notes?: string
+  is_active?: boolean
+}
+
+export interface ReferralCode {
+  id: number
+  code: string
+  notes: string | null
+  is_active: boolean
+  created_at: string
+  deactivated_at: string | null
+}
+
 export interface CommissionConfig {
   commission_mode: 'default' | 'custom'
   unassigned_policy: 'compress' | 'retain_admin'
@@ -185,8 +208,18 @@ export const adminApi = {
     apiClient.post<SimulateSubscriptionResult>('/api/admin/simulate-subscription', data).then((r) => r.data),
   listTeams: () =>
     apiClient.get<{ teams: SalesTeam[] }>('/api/admin/teams').then((r) => r.data),
+  createTeam: (data: SalesTeamCreate) =>
+    apiClient.post<SalesTeam>('/api/admin/teams', data).then((r) => r.data),
+  updateTeam: (teamId: number, data: SalesTeamUpdate) =>
+    apiClient.put<SalesTeam>(`/api/admin/teams/${teamId}`, data).then((r) => r.data),
   getCommissionConfig: (teamId: number) =>
     apiClient.get<CommissionConfig>(`/api/admin/teams/${teamId}/commission-config`).then((r) => r.data),
   updateCommissionConfig: (teamId: number, data: CommissionConfigUpdate) =>
     apiClient.put<CommissionConfig>(`/api/admin/teams/${teamId}/commission-config`, data).then((r) => r.data),
+  listReferralCodes: (teamId: number) =>
+    apiClient.get<{ codes: ReferralCode[] }>(`/api/admin/teams/${teamId}/referral-codes`).then((r) => r.data),
+  createReferralCode: (teamId: number, notes?: string) =>
+    apiClient.post(`/api/admin/teams/${teamId}/referral-codes`, { notes }).then((r) => r.data),
+  deactivateReferralCode: (codeId: number) =>
+    apiClient.delete(`/api/admin/referral-codes/${codeId}`).then((r) => r.data),
 }

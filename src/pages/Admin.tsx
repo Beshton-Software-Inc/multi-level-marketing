@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Users, DollarSign, CreditCard, TrendingUp, Check, X } from 'lucide-react'
-import { adminApi, SimulateSubscriptionResult, CommissionConfigUpdate } from '../lib/api'
+import { Users, DollarSign, CreditCard, TrendingUp, Check, X, Plus, RefreshCw } from 'lucide-react'
+import { adminApi, SimulateSubscriptionResult, CommissionConfigUpdate, SalesTeam } from '../lib/api'
 import { StatCard } from '../components/StatCard'
 
-type Tab = 'affiliates' | 'payouts' | 'commission' | 'simulate' | 'team-config'
+type Tab = 'affiliates' | 'payouts' | 'commission' | 'simulate' | 'team-config' | 'teams'
 
 const PLATFORM_DEFAULTS = [20, 5, 5, 3, 2, 5, 10]
 
@@ -19,6 +19,17 @@ export function Admin() {
   const [simMsg, setSimMsg] = useState('')
   const [simError, setSimError] = useState('')
   const [simResult, setSimResult] = useState<SimulateSubscriptionResult | null>(null)
+
+  // Teams tab state
+  const [newTeamName, setNewTeamName] = useState('')
+  const [newTeamPrefix, setNewTeamPrefix] = useState('')
+  const [newTeamRate, setNewTeamRate] = useState('100')
+  const [newTeamNotes, setNewTeamNotes] = useState('')
+  const [teamsMsg, setTeamsMsg] = useState('')
+  const [teamsError, setTeamsError] = useState('')
+  const [selectedTeamForCodes, setSelectedTeamForCodes] = useState<SalesTeam | null>(null)
+  const [newCodeNotes, setNewCodeNotes] = useState('')
+  const [codesMsg, setCodesMsg] = useState('')
 
   // Commission config tab state
   const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null)
@@ -42,6 +53,57 @@ export function Admin() {
     queryFn: () => adminApi.getCommissionConfig(selectedTeamId!),
     enabled: selectedTeamId !== null,
   })
+
+  const { data: codesData, refetch: refetchCodes } = useQuery({
+    queryKey: ['admin-referral-codes', selectedTeamForCodes?.id],
+    queryFn: () => adminApi.listReferralCodes(selectedTeamForCodes!.id),
+    enabled: selectedTeamForCodes !== null,
+  })
+
+  const createTeam = useMutation({
+    mutationFn: adminApi.createTeam,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-teams'] })
+      setNewTeamName(''); setNewTeamPrefix(''); setNewTeamRate('100'); setNewTeamNotes('')
+      setTeamsMsg('Team created.'); setTeamsError('')
+      setTimeout(() => setTeamsMsg(''), 3000)
+    },
+    onError: (err: unknown) => {
+      const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
+      setTeamsError(typeof detail === 'string' ? detail : 'Failed to create team.')
+      setTeamsMsg('')
+    },
+  })
+
+  const toggleTeamActive = useMutation({
+    mutationFn: ({ id, is_active }: { id: number; is_active: boolean }) =>
+      adminApi.updateTeam(id, { is_active }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-teams'] }),
+  })
+
+  const createCode = useMutation({
+    mutationFn: () => adminApi.createReferralCode(selectedTeamForCodes!.id, newCodeNotes || undefined),
+    onSuccess: () => {
+      refetchCodes()
+      setNewCodeNotes('')
+      setCodesMsg('Code generated.'); setTimeout(() => setCodesMsg(''), 3000)
+    },
+  })
+
+  const deactivateCode = useMutation({
+    mutationFn: (codeId: number) => adminApi.deactivateReferralCode(codeId),
+    onSuccess: () => refetchCodes(),
+  })
+
+  const handleCreateTeam = (e: React.FormEvent) => {
+    e.preventDefault()
+    const prefix = newTeamPrefix.trim().toUpperCase()
+    if (!/^[A-Z]{2,4}$/.test(prefix)) {
+      setTeamsError('Prefix must be 2–4 uppercase letters (e.g. NS, WWL).')
+      return
+    }
+    createTeam.mutate({ name: newTeamName, referral_prefix: prefix, commission_rate: parseFloat(newTeamRate), notes: newTeamNotes || undefined })
+  }
 
   const updateConfig = useMutation({
     mutationFn: ({ teamId, data }: { teamId: number; data: CommissionConfigUpdate }) =>
@@ -201,7 +263,7 @@ export function Admin() {
       {/* Tabs */}
       <div className="border-b border-slate-700">
         <div className="flex gap-6">
-          {(['affiliates', 'payouts', 'commission', 'simulate', 'team-config'] as Tab[]).map((t) => (
+          {(['affiliates', 'payouts', 'teams', 'commission', 'simulate', 'team-config'] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -217,7 +279,9 @@ export function Admin() {
                   ? 'Simulate Subscription'
                   : t === 'team-config'
                     ? 'Commission Rates'
-                    : t}
+                    : t === 'teams'
+                      ? 'Teams'
+                      : t}
             </button>
           ))}
         </div>
@@ -531,6 +595,232 @@ export function Admin() {
               </form>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Teams tab */}
+      {tab === 'teams' && (
+        <div className="space-y-6">
+          {/* Create team form */}
+          <div className="max-w-lg">
+            <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
+              <h3 className="text-lg font-semibold text-white mb-1">Create Sales Team</h3>
+              <p className="text-sm text-slate-400 mb-5">
+                Each team gets a unique prefix used to namespace its referral codes (e.g. prefix <span className="font-mono text-amber-400">NS</span> → codes like <span className="font-mono text-amber-400">NS-A3KX9Q7B</span>).
+              </p>
+              {teamsMsg && (
+                <div className="mb-4 bg-green-500/10 border border-green-500/30 rounded-lg px-4 py-3 text-green-400 text-sm">{teamsMsg}</div>
+              )}
+              {teamsError && (
+                <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm">{teamsError}</div>
+              )}
+              <form onSubmit={handleCreateTeam} className="space-y-4">
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1.5">Team Name</label>
+                  <input
+                    type="text"
+                    value={newTeamName}
+                    onChange={(e) => setNewTeamName(e.target.value)}
+                    required
+                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-amber-500"
+                    placeholder="NS Partners"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm text-slate-400 mb-1.5">Prefix <span className="text-slate-500">(2–4 letters)</span></label>
+                    <input
+                      type="text"
+                      value={newTeamPrefix}
+                      onChange={(e) => setNewTeamPrefix(e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4))}
+                      required
+                      maxLength={4}
+                      className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2.5 text-white font-mono focus:outline-none focus:border-amber-500 uppercase"
+                      placeholder="NS"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-slate-400 mb-1.5">Commission Rate <span className="text-slate-500">(%)</span></label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      value={newTeamRate}
+                      onChange={(e) => setNewTeamRate(e.target.value)}
+                      required
+                      className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-amber-500"
+                      placeholder="100"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1.5">Notes <span className="text-slate-500">(optional)</span></label>
+                  <input
+                    type="text"
+                    value={newTeamNotes}
+                    onChange={(e) => setNewTeamNotes(e.target.value)}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-amber-500"
+                    placeholder="Internal notes about this team"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={createTeam.isPending}
+                  className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-900 font-semibold py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2"
+                >
+                  <Plus size={16} />
+                  {createTeam.isPending ? 'Creating…' : 'Create Team'}
+                </button>
+              </form>
+            </div>
+          </div>
+
+          {/* Teams list */}
+          <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-700">
+              <h3 className="text-base font-semibold text-white">All Teams</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-slate-500 text-xs border-b border-slate-700 bg-slate-700/30">
+                    <th className="text-left px-6 py-3">Name</th>
+                    <th className="text-left px-6 py-3">Prefix</th>
+                    <th className="text-left px-6 py-3">Commission</th>
+                    <th className="text-left px-6 py-3">Members</th>
+                    <th className="text-left px-6 py-3">Status</th>
+                    <th className="text-right px-6 py-3">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(teamsData?.teams ?? []).map((team) => (
+                    <tr
+                      key={team.id}
+                      className={`border-b border-slate-700/50 transition-colors ${
+                        selectedTeamForCodes?.id === team.id ? 'bg-slate-700/40' : 'hover:bg-slate-700/20'
+                      }`}
+                    >
+                      <td className="px-6 py-3 text-white font-medium">{team.name}</td>
+                      <td className="px-6 py-3">
+                        <span className="font-mono text-xs bg-slate-700 text-amber-400 px-2 py-1 rounded">{team.referral_prefix}</span>
+                      </td>
+                      <td className="px-6 py-3 text-slate-300">{parseFloat(team.commission_rate).toFixed(1)}%</td>
+                      <td className="px-6 py-3 text-slate-400">{team.member_count}</td>
+                      <td className="px-6 py-3">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                          team.is_active ? 'bg-green-500/20 text-green-400' : 'bg-slate-600 text-slate-400'
+                        }`}>
+                          {team.is_active ? 'active' : 'inactive'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-3 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => setSelectedTeamForCodes(selectedTeamForCodes?.id === team.id ? null : team)}
+                            className="text-xs px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition-colors"
+                          >
+                            {selectedTeamForCodes?.id === team.id ? 'Hide codes' : 'Ref codes'}
+                          </button>
+                          <button
+                            onClick={() => toggleTeamActive.mutate({ id: team.id, is_active: !team.is_active })}
+                            disabled={toggleTeamActive.isPending}
+                            className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                              team.is_active
+                                ? 'bg-red-500/10 hover:bg-red-500/20 text-red-400'
+                                : 'bg-green-500/10 hover:bg-green-500/20 text-green-400'
+                            }`}
+                          >
+                            {team.is_active ? 'Deactivate' : 'Activate'}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {(teamsData?.teams ?? []).length === 0 && (
+                <div className="p-8 text-center text-slate-500 text-sm">No teams yet. Create one above.</div>
+              )}
+            </div>
+          </div>
+
+          {/* Referral codes panel for selected team */}
+          {selectedTeamForCodes && (
+            <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
+              <div className="px-6 py-4 border-b border-slate-700 flex items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-base font-semibold text-white">
+                    Referral Codes — <span className="text-amber-400">{selectedTeamForCodes.name}</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Format: <span className="font-mono">{selectedTeamForCodes.referral_prefix}-XXXXXXXX</span>
+                  </p>
+                </div>
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  {codesMsg && <span className="text-xs text-green-400">{codesMsg}</span>}
+                  <input
+                    type="text"
+                    value={newCodeNotes}
+                    onChange={(e) => setNewCodeNotes(e.target.value)}
+                    placeholder="Notes (optional)"
+                    className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-amber-500 w-44"
+                  />
+                  <button
+                    onClick={() => createCode.mutate()}
+                    disabled={createCode.isPending}
+                    className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-900 text-sm font-semibold px-4 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+                  >
+                    <Plus size={14} />
+                    {createCode.isPending ? 'Generating…' : 'Generate Code'}
+                  </button>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-slate-500 text-xs border-b border-slate-700 bg-slate-700/30">
+                      <th className="text-left px-6 py-3">Code</th>
+                      <th className="text-left px-6 py-3">Notes</th>
+                      <th className="text-left px-6 py-3">Status</th>
+                      <th className="text-left px-6 py-3">Created</th>
+                      <th className="text-right px-6 py-3">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(codesData?.codes ?? []).map((c) => (
+                      <tr key={c.id} className="border-b border-slate-700/50 hover:bg-slate-700/10">
+                        <td className="px-6 py-3 font-mono text-amber-400 text-xs tracking-wide">{c.code}</td>
+                        <td className="px-6 py-3 text-slate-400 text-xs">{c.notes || '—'}</td>
+                        <td className="px-6 py-3">
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                            c.is_active ? 'bg-green-500/20 text-green-400' : 'bg-slate-600 text-slate-500'
+                          }`}>
+                            {c.is_active ? 'active' : 'inactive'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-3 text-slate-500 text-xs">{new Date(c.created_at).toLocaleDateString()}</td>
+                        <td className="px-6 py-3 text-right">
+                          {c.is_active && (
+                            <button
+                              onClick={() => deactivateCode.mutate(c.id)}
+                              disabled={deactivateCode.isPending}
+                              className="text-xs px-3 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors"
+                            >
+                              Deactivate
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {(codesData?.codes ?? []).length === 0 && (
+                  <div className="p-8 text-center text-slate-500 text-sm">No codes yet. Generate one above.</div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
