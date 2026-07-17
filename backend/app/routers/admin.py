@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+import secrets
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -6,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import get_db
 from app.models import Affiliate, Commission, PayoutRequest, ReferralCode, SalesTeam, TeamMembership, WebhookFailure
 from app.schemas.admin import (
@@ -23,9 +25,12 @@ from app.schemas.admin import (
     SetTeamMemberRoleRequest,
     CommissionConfigResponse,
     CommissionConfigUpdate,
+    InviteTeamAdminRequest,
+    InviteTeamAdminResponse,
 )
 from app.schemas.affiliate import AffiliateResponse, PayoutRequestResponse
-from app.services.auth_service import require_admin, require_super_admin
+from app.services.auth_service import require_admin, require_super_admin, generate_referral_code
+from app.services.email_service import send_invite_email
 from app.services.mlm_service import build_effective_rates, preview_commission_breakdown
 from app.services.referral_code_service import generate_code as _generate_code, deactivate_code as _deactivate_code
 
@@ -581,3 +586,75 @@ def deactivate_referral_code(
         _deactivate_code(db, code_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+# ── Team admin invite ────────────────────────────────────────────────────────
+
+@router.post("/invite-team-admin", response_model=InviteTeamAdminResponse)
+def invite_team_admin(
+    body: InviteTeamAdminRequest,
+    admin: Affiliate = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Create a pending team-admin account and email them an invite link to set their password."""
+    # Resolve or create the team
+    if body.team_id:
+        team = db.query(SalesTeam).filter(SalesTeam.id == body.team_id).first()
+        if not team:
+            raise HTTPException(status_code=404, detail="Team not found")
+    elif body.new_team_name and body.new_team_prefix:
+        prefix = body.new_team_prefix.strip().upper()
+        if db.query(SalesTeam).filter(SalesTeam.referral_prefix == prefix).first():
+            raise HTTPException(status_code=400, detail="Prefix already taken")
+        if db.query(SalesTeam).filter(SalesTeam.name == body.new_team_name).first():
+            raise HTTPException(status_code=400, detail="Team name already taken")
+        team = SalesTeam(name=body.new_team_name, referral_prefix=prefix, commission_rate=Decimal("100"))
+        db.add(team)
+        db.flush()  # get team.id without committing
+    else:
+        raise HTTPException(status_code=400, detail="Provide team_id or both new_team_name and new_team_prefix")
+
+    # Reject duplicate email
+    if db.query(Affiliate).filter(Affiliate.email == body.email).first():
+        raise HTTPException(status_code=400, detail="An account with this email already exists")
+
+    # Generate a unique referral code for the new admin
+    while True:
+        code = generate_referral_code()
+        if not db.query(Affiliate).filter(Affiliate.referral_code == code).first():
+            break
+
+    # Create invite token (48h expiry)
+    token = secrets.token_urlsafe(32)
+    expires = datetime.now(timezone.utc) + timedelta(hours=48)
+
+    affiliate = Affiliate(
+        name=body.name,
+        email=body.email,
+        password_hash="__invite_pending__",  # placeholder, replaced on accept
+        referral_code=code,
+        is_admin=True,
+        managed_team_id=team.id,
+        status="pending",
+        invite_token=token,
+        invite_token_expires_at=expires,
+    )
+    db.add(affiliate)
+    db.commit()
+    db.refresh(affiliate)
+
+    invite_link = f"{settings.FRONTEND_URL.rstrip('/')}/accept-invite?token={token}"
+
+    invite_sent = True
+    try:
+        send_invite_email(body.email, body.name, invite_link)
+    except Exception:
+        invite_sent = False  # email failed but account was created; admin can resend manually
+
+    return InviteTeamAdminResponse(
+        affiliate_id=affiliate.id,
+        email=affiliate.email,
+        team_id=team.id,
+        team_name=team.name,
+        invite_sent=invite_sent,
+    )

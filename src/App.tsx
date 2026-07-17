@@ -10,6 +10,7 @@ import { Team } from './pages/Team'
 import { Earnings } from './pages/Earnings'
 import { Payouts } from './pages/Payouts'
 import { Admin } from './pages/Admin'
+import { AcceptInvite } from './pages/AcceptInvite'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { token } = useAuth()
@@ -30,6 +31,7 @@ function AppRoutes() {
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/accept-invite" element={<AcceptInvite />} />
 
       <Route
         element={

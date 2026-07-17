@@ -1,13 +1,142 @@
 import React, { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Users, DollarSign, CreditCard, TrendingUp, Check, X, Plus, RefreshCw } from 'lucide-react'
-import { adminApi, SimulateSubscriptionResult, CommissionConfigUpdate, SalesTeam } from '../lib/api'
+import { adminApi, authApi, SimulateSubscriptionResult, CommissionConfigUpdate, SalesTeam, InviteTeamAdminRequest } from '../lib/api'
 import { StatCard } from '../components/StatCard'
 import { useAuth } from '../contexts/AuthContext'
 
-type Tab = 'affiliates' | 'payouts' | 'commission' | 'simulate' | 'team-config' | 'teams' | 'codes' | 'commission-rates'
+type Tab = 'affiliates' | 'payouts' | 'commission' | 'simulate' | 'team-config' | 'teams' | 'codes' | 'commission-rates' | 'invite'
 
 const PLATFORM_DEFAULTS = [20, 5, 5, 3, 2, 5, 10]
+
+function InviteTeamAdminPanel({ teams, onSuccess }: { teams: SalesTeam[]; onSuccess: () => void }) {
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [teamMode, setTeamMode] = useState<'existing' | 'new'>('existing')
+  const [selectedTeamId, setSelectedTeamId] = useState<number | ''>('')
+  const [newTeamName, setNewTeamName] = useState('')
+  const [newTeamPrefix, setNewTeamPrefix] = useState('')
+  const [msg, setMsg] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setMsg(''); setError('')
+
+    const payload: InviteTeamAdminRequest = { name, email }
+    if (teamMode === 'existing') {
+      if (!selectedTeamId) { setError('Select a team.'); return }
+      payload.team_id = Number(selectedTeamId)
+    } else {
+      if (!newTeamName || !newTeamPrefix) { setError('Team name and prefix are required.'); return }
+      payload.new_team_name = newTeamName
+      payload.new_team_prefix = newTeamPrefix.toUpperCase()
+    }
+
+    setLoading(true)
+    try {
+      const res = await adminApi.inviteTeamAdmin(payload)
+      setMsg(
+        res.invite_sent
+          ? `Invite sent to ${res.email} for team "${res.team_name}".`
+          : `Account created for ${res.email} (team "${res.team_name}") — email could not be sent. Share the invite link manually.`
+      )
+      setName(''); setEmail(''); setSelectedTeamId(''); setNewTeamName(''); setNewTeamPrefix('')
+    } catch (err: any) {
+      setError(err.response?.data?.detail ?? 'Failed to send invite.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="max-w-lg">
+      <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
+        <h3 className="text-lg font-semibold text-white mb-1">Invite Team Admin</h3>
+        <p className="text-sm text-slate-400 mb-5">
+          Creates a team admin account and emails them a link to set their password.
+        </p>
+
+        {msg && (
+          <div className="mb-4 bg-green-500/10 border border-green-500/30 rounded-lg px-4 py-3 text-green-400 text-sm">
+            {msg}
+          </div>
+        )}
+        {error && (
+          <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm">
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm text-slate-400 mb-1.5">Full Name</label>
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)} required
+              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-amber-500"
+              placeholder="Jane Smith" />
+          </div>
+          <div>
+            <label className="block text-sm text-slate-400 mb-1.5">Email</label>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required
+              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-amber-500"
+              placeholder="jane@example.com" />
+          </div>
+
+          <div>
+            <label className="block text-sm text-slate-400 mb-1.5">Team</label>
+            <div className="flex gap-3 mb-3">
+              <button type="button"
+                onClick={() => setTeamMode('existing')}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                  teamMode === 'existing'
+                    ? 'bg-amber-500/20 border-amber-500 text-amber-400'
+                    : 'bg-slate-700 border-slate-600 text-slate-400 hover:text-white'
+                }`}>
+                Existing Team
+              </button>
+              <button type="button"
+                onClick={() => setTeamMode('new')}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                  teamMode === 'new'
+                    ? 'bg-amber-500/20 border-amber-500 text-amber-400'
+                    : 'bg-slate-700 border-slate-600 text-slate-400 hover:text-white'
+                }`}>
+                Create New Team
+              </button>
+            </div>
+
+            {teamMode === 'existing' ? (
+              <select value={selectedTeamId} onChange={(e) => setSelectedTeamId(e.target.value === '' ? '' : Number(e.target.value))}
+                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-amber-500">
+                <option value="">— select a team —</option>
+                {teams.filter(t => t.is_active).map(t => (
+                  <option key={t.id} value={t.id}>{t.name} ({t.referral_prefix})</option>
+                ))}
+              </select>
+            ) : (
+              <div className="space-y-3">
+                <input type="text" value={newTeamName} onChange={(e) => setNewTeamName(e.target.value)}
+                  placeholder="Team Name"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-amber-500" />
+                <input type="text" value={newTeamPrefix}
+                  onChange={(e) => setNewTeamPrefix(e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4))}
+                  placeholder="Prefix (2–4 letters, e.g. NS)"
+                  maxLength={4}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2.5 text-white font-mono focus:outline-none focus:border-amber-500 uppercase" />
+              </div>
+            )}
+          </div>
+
+          <button type="submit" disabled={loading}
+            className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-900 font-semibold py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2">
+            {loading ? 'Sending…' : 'Send Invite'}
+          </button>
+        </form>
+      </div>
+    </div>
+  )
+}
 
 export function Admin() {
   const { user } = useAuth()
@@ -518,7 +647,7 @@ export function Admin() {
       {/* Tabs */}
       <div className="border-b border-slate-700">
         <div className="flex gap-6">
-          {(['affiliates', 'payouts', 'teams', 'commission', 'simulate', 'team-config'] as Tab[]).map((t) => (
+          {(['affiliates', 'payouts', 'teams', 'invite', 'commission', 'simulate', 'team-config'] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -536,7 +665,9 @@ export function Admin() {
                     ? 'Commission Rates'
                     : t === 'teams'
                       ? 'Teams'
-                      : t}
+                      : t === 'invite'
+                        ? 'Invite Team Admin'
+                        : t}
             </button>
           ))}
         </div>
@@ -1061,6 +1192,11 @@ export function Admin() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Invite Team Admin tab */}
+      {tab === 'invite' && (
+        <InviteTeamAdminPanel teams={teamsData?.teams ?? []} onSuccess={() => setTab('affiliates')} />
       )}
 
       {/* Simulate Subscription tab */}

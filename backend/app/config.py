@@ -19,6 +19,13 @@ class Settings(BaseSettings):
     # Frontend URL added to CORS allow-list. Set per-environment in Railway.
     FRONTEND_URL: str = "http://localhost:5173"
 
+    # SMTP — used for invite emails. Leave blank to skip sending (token is logged instead).
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    FROM_EMAIL: str = "noreply@winwinlaw.com"
+
     class Config:
         env_file = ".env"
         extra = "ignore"

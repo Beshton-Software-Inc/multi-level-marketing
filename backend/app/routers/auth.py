@@ -1,9 +1,12 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Affiliate
 from app.schemas.auth import RegisterRequest, LoginRequest, TokenResponse, AffiliateInToken
+from app.schemas.admin import AcceptInviteRequest
 from app.services.auth_service import (
     hash_password, verify_password, create_access_token, generate_referral_code
 )
@@ -53,8 +56,35 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
     affiliate = db.query(Affiliate).filter(Affiliate.email == body.email).first()
     if not affiliate or not verify_password(body.password, affiliate.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    if affiliate.status == "pending":
+        raise HTTPException(status_code=403, detail="Account not activated. Check your invite email.")
     if affiliate.status != "active":
         raise HTTPException(status_code=403, detail="Account suspended")
+
+    token = create_access_token({"sub": str(affiliate.id)})
+    return TokenResponse(
+        access_token=token,
+        user=AffiliateInToken.model_validate(affiliate),
+    )
+
+
+@router.post("/accept-invite", response_model=TokenResponse)
+def accept_invite(body: AcceptInviteRequest, db: Session = Depends(get_db)):
+    """Team admin sets their password using the token from their invite email."""
+    affiliate = db.query(Affiliate).filter(Affiliate.invite_token == body.token).first()
+    if not affiliate:
+        raise HTTPException(status_code=400, detail="Invalid or already used invite link")
+    if affiliate.invite_token_expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Invite link has expired. Ask a super admin to resend.")
+    if len(body.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+
+    affiliate.password_hash = hash_password(body.password)
+    affiliate.status = "active"
+    affiliate.invite_token = None
+    affiliate.invite_token_expires_at = None
+    db.commit()
+    db.refresh(affiliate)
 
     token = create_access_token({"sub": str(affiliate.id)})
     return TokenResponse(

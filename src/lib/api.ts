@@ -158,6 +158,22 @@ export interface CommissionConfig {
   custom_rate_l7: string | null
 }
 
+export interface InviteTeamAdminRequest {
+  name: string
+  email: string
+  team_id?: number
+  new_team_name?: string
+  new_team_prefix?: string
+}
+
+export interface InviteTeamAdminResponse {
+  affiliate_id: number
+  email: string
+  team_id: number
+  team_name: string
+  invite_sent: boolean
+}
+
 export interface CommissionConfigUpdate {
   commission_mode?: 'default' | 'custom'
   unassigned_policy?: 'compress' | 'retain_admin'
@@ -177,6 +193,8 @@ export const authApi = {
     apiClient.post<TokenResponse>('/api/auth/register', data).then((r) => r.data),
   login: (data: { email: string; password: string }) =>
     apiClient.post<TokenResponse>('/api/auth/login', data).then((r) => r.data),
+  acceptInvite: (token: string, password: string) =>
+    apiClient.post<TokenResponse>('/api/auth/accept-invite', { token, password }).then((r) => r.data),
 }
 
 // ── Affiliate API ──────────────────────────────────────
@@ -223,4 +241,7 @@ export const adminApi = {
     apiClient.post(`/api/admin/teams/${teamId}/referral-codes`, { notes }).then((r) => r.data),
   deactivateReferralCode: (codeId: number) =>
     apiClient.delete(`/api/admin/referral-codes/${codeId}`).then((r) => r.data),
+  inviteTeamAdmin: (data: InviteTeamAdminRequest) =>
+    apiClient.post<InviteTeamAdminResponse>('/api/admin/invite-team-admin', data).then((r) => r.data),
 }
+

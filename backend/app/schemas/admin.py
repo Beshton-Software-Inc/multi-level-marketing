@@ -125,6 +125,30 @@ class CommissionConfigResponse(BaseModel):
     custom_rate_l7: Optional[Decimal] = None
 
 
+# ── Team admin invite schemas ────────────────────────────────────────────────
+
+class InviteTeamAdminRequest(BaseModel):
+    name: str
+    email: str
+    # Provide an existing team id OR supply new_team_name + new_team_prefix to create one on the fly
+    team_id: Optional[int] = None
+    new_team_name: Optional[str] = None
+    new_team_prefix: Optional[str] = None
+
+
+class InviteTeamAdminResponse(BaseModel):
+    affiliate_id: int
+    email: str
+    team_id: int
+    team_name: str
+    invite_sent: bool
+
+
+class AcceptInviteRequest(BaseModel):
+    token: str
+    password: str
+
+
 class CommissionConfigUpdate(BaseModel):
     commission_mode: Optional[Literal["default", "custom"]] = None
     unassigned_policy: Optional[Literal["compress", "retain_admin"]] = None

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, Numeric, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Boolean, Numeric, DateTime, ForeignKey, UniqueConstraint, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -72,6 +72,8 @@ class Affiliate(Base):
     # Non-null → this affiliate is a team admin scoped to exactly one team.
     # Null + is_admin=True → WWL super admin (full access).
     managed_team_id = Column(Integer, ForeignKey("sales_teams.id", ondelete="SET NULL"), nullable=True)
+    invite_token = Column(String(64), nullable=True, unique=True)
+    invite_token_expires_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     referred_by = relationship("Affiliate", remote_side=[id], back_populates="referrals")
