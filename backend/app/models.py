@@ -88,7 +88,7 @@ class Commission(Base):
     __tablename__ = "commissions"
 
     id = Column(Integer, primary_key=True, index=True)
-    earner_id = Column(Integer, ForeignKey("affiliates.id"), nullable=False)
+    earner_id = Column(Integer, ForeignKey("affiliates.id"), nullable=True)  # NULL = retained by platform
     source_id = Column(Integer, ForeignKey("affiliates.id"), nullable=True)
     amount = Column(Numeric(10, 2), nullable=False)
     tier = Column(Integer, nullable=False)

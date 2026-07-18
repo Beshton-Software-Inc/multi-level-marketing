@@ -243,6 +243,22 @@ def calculate_and_create_commissions(
         else:
             earner = _resolve_unassigned(ancestors, unassigned_policy, team_admin_id, db)
             if earner is None:
+                # No upline at all — write a retained row so ops can audit it
+                db.add(Commission(
+                    earner_id=None,
+                    source_id=new_affiliate_id,
+                    amount=amount,
+                    tier=level,
+                    description=(
+                        f"Level {level} commission retained by platform "
+                        f"— {affiliate.name} has no upline"
+                    ),
+                    status="retained",
+                    subscription_amount=subscription_amount,
+                    commission_rate=rate,
+                    team_allocation_pct=team_commission_rate,
+                    subscription_id=subscription_id,
+                ))
                 winwinlaw_retained.append({"level": level, "amount": amount})
                 continue
             compressed = True
@@ -290,14 +306,6 @@ def calculate_and_create_commissions(
             "team_commission_rate": team_commission_rate,
             "compressed": compressed,
         })
-
-    if winwinlaw_retained:
-        total_retained = sum(r["amount"] for r in winwinlaw_retained)
-        levels = [r["level"] for r in winwinlaw_retained]
-        print(
-            f"[MLM] Platform retained ${total_retained} from levels {levels} "
-            f"— {affiliate.name} (id={affiliate.id}) has no upline"
-        )
 
     db.commit()
     return created
